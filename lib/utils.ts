@@ -35,6 +35,11 @@ export const getNetIncome = (income: IncomeEntry | { weeklySalary: number; sss: 
   return Math.max(0, income.weeklySalary - totalDeductions);
 };
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export const generateId = (): string => {
-  return Math.random().toString(36).substring(2, 11);
+  return crypto.randomUUID();
 };
+
+/** Returns true if the string is a valid UUID (so Supabase will accept it). */
+export const isValidUUID = (id: string): boolean => UUID_REGEX.test(id);

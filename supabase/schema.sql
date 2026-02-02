@@ -14,6 +14,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS income_history (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   date DATE NOT NULL,
   weekly_salary DECIMAL(12, 2) NOT NULL CHECK (weekly_salary >= 0),
   sss DECIMAL(12, 2) NOT NULL DEFAULT 0 CHECK (sss >= 0),
@@ -24,8 +25,6 @@ CREATE TABLE IF NOT EXISTS income_history (
   general_savings DECIMAL(12, 2) NOT NULL DEFAULT 0 CHECK (general_savings >= 0),
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
-  -- Optional: add when you enable Supabase Auth for multi-user support
-  -- user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE
 );
 
 -- Index for faster date-based queries (dashboard, analytics)
@@ -37,6 +36,7 @@ CREATE INDEX IF NOT EXISTS idx_income_history_date ON income_history(date DESC);
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS expenses (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   date DATE NOT NULL,
   category TEXT NOT NULL CHECK (category IN (
     'Emergency Fund', 'General Savings', 'Life Insurance',
@@ -47,8 +47,6 @@ CREATE TABLE IF NOT EXISTS expenses (
   description TEXT DEFAULT '',
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
-  -- Optional: add when you enable Supabase Auth for multi-user support
-  -- user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE
 );
 
 -- Indexes for filtering and analytics
@@ -79,21 +77,16 @@ CREATE TRIGGER trigger_expenses_updated_at
   EXECUTE FUNCTION update_updated_at_column();
 
 -- =============================================================================
--- ROW LEVEL SECURITY (RLS)
--- Enable when you add Supabase Auth. Until then, tables are open.
--- Uncomment and run the block below after enabling auth:
+-- ROW LEVEL SECURITY (RLS) – each user sees only their own data
 -- =============================================================================
-/*
 ALTER TABLE income_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE expenses ENABLE ROW LEVEL SECURITY;
 
--- Policy: Users can only see their own data (requires user_id column)
 CREATE POLICY "Users can manage own income" ON income_history
-  FOR ALL USING (auth.uid() = user_id);
+  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 CREATE POLICY "Users can manage own expenses" ON expenses
-  FOR ALL USING (auth.uid() = user_id);
-*/
+  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 -- =============================================================================
 -- USAGE NOTES
