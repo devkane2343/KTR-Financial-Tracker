@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { FinancialData, IncomeEntry, Expense, TabType } from './types';
 import { SummaryCards } from './components/SummaryCards';
@@ -10,12 +10,18 @@ import { AnalyticsSummary } from './components/AnalyticsSummary';
 import { SpendingTrendChart } from './components/Charts/SpendingTrendChart';
 import { CategoryPieChart } from './components/Charts/CategoryPieChart';
 import { IncomeVsExpenseChart } from './components/Charts/IncomeVsExpenseChart';
-import { 
-  LayoutDashboard, 
-  ReceiptText, 
-  PieChart as ChartIcon, 
-  History, 
-  ChevronRight
+import { NetIncomeTrendChart } from './components/Charts/NetIncomeTrendChart';
+import { AuthPage } from './components/AuthPage';
+import {
+  LayoutDashboard,
+  ReceiptText,
+  PieChart as ChartIcon,
+  History,
+  ChevronRight,
+  Save,
+  Check,
+  AlertCircle,
+  LogOut
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import { saveFinancialDataToSupabase, loadFinancialDataFromSupabase } from './lib/supabaseSave';
@@ -36,6 +42,53 @@ const App: React.FC = () => {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const [saveError, setSaveError] = useState<string>('');
   const [saveSuccessCount, setSaveSuccessCount] = useState<{ income: number; expenses: number } | undefined>(undefined);
+
+  const dataRef = useRef(data);
+  const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
+
+  const performSave = useCallback(async (payload: FinancialData) => {
+    setSaveStatus('saving');
+    setSaveError('');
+    const result = await saveFinancialDataToSupabase(payload);
+    if (result.ok) {
+      setSaveError('');
+      setSaveSuccessCount(result.saved);
+      if (result.idMapping) {
+        const mapIncome = new Map(result.idMapping.income.map((m) => [m.oldId, m.newId]));
+        const mapExpense = new Map(result.idMapping.expenses.map((m) => [m.oldId, m.newId]));
+        setData((prev) => ({
+          incomeHistory: prev.incomeHistory.map((e) => (mapIncome.has(e.id) ? { ...e, id: mapIncome.get(e.id)! } : e)),
+          expenses: prev.expenses.map((e) => (mapExpense.has(e.id) ? { ...e, id: mapExpense.get(e.id)! } : e)),
+        }));
+      }
+      setSaveStatus('success');
+      setTimeout(() => {
+        setSaveStatus('idle');
+        setSaveSuccessCount(undefined);
+      }, 3000);
+    } else {
+      setSaveStatus('error');
+      setSaveError(result.error ?? 'Save failed');
+    }
+  }, []);
+
+  const scheduleAutoSave = useCallback(() => {
+    if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
+    autoSaveTimeoutRef.current = setTimeout(() => {
+      autoSaveTimeoutRef.current = null;
+      performSave(dataRef.current);
+    }, 1500);
+  }, [performSave]);
+
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -66,6 +119,7 @@ const App: React.FC = () => {
 
   const handleAddIncome = (income: IncomeEntry) => {
     setData(prev => ({ ...prev, incomeHistory: [income, ...prev.incomeHistory] }));
+    scheduleAutoSave();
   };
 
   const handleUpdateIncome = (income: IncomeEntry) => {
@@ -74,15 +128,18 @@ const App: React.FC = () => {
       incomeHistory: prev.incomeHistory.map(item => item.id === income.id ? income : item)
     }));
     setEditingIncome(null);
+    scheduleAutoSave();
   };
 
   const handleDeleteIncome = (id: string) => {
     if (editingIncome?.id === id) setEditingIncome(null);
     setData(prev => ({ ...prev, incomeHistory: prev.incomeHistory.filter(i => i.id !== id) }));
+    scheduleAutoSave();
   };
 
   const handleAddExpense = (expense: Expense) => {
     setData(prev => ({ ...prev, expenses: [expense, ...prev.expenses] }));
+    scheduleAutoSave();
   };
 
   const handleUpdateExpense = (expense: Expense) => {
@@ -91,37 +148,17 @@ const App: React.FC = () => {
       expenses: prev.expenses.map(e => e.id === expense.id ? expense : e)
     }));
     setEditingExpense(null);
+    scheduleAutoSave();
   };
 
   const handleDeleteExpense = (id: string) => {
     if (editingExpense?.id === id) setEditingExpense(null);
     setData(prev => ({ ...prev, expenses: prev.expenses.filter(e => e.id !== id) }));
+    scheduleAutoSave();
   };
 
-  const handleSaveToSupabase = async () => {
-    setSaveStatus('saving');
-    setSaveError('');
-    const result = await saveFinancialDataToSupabase(data);
-    if (result.ok) {
-      setSaveError('');
-      setSaveSuccessCount(result.saved);
-      if (result.idMapping) {
-        const mapIncome = new Map(result.idMapping.income.map((m) => [m.oldId, m.newId]));
-        const mapExpense = new Map(result.idMapping.expenses.map((m) => [m.oldId, m.newId]));
-        setData((prev) => ({
-          incomeHistory: prev.incomeHistory.map((e) => (mapIncome.has(e.id) ? { ...e, id: mapIncome.get(e.id)! } : e)),
-          expenses: prev.expenses.map((e) => (mapExpense.has(e.id) ? { ...e, id: mapExpense.get(e.id)! } : e)),
-        }));
-      }
-      setSaveStatus('success');
-      setTimeout(() => {
-        setSaveStatus('idle');
-        setSaveSuccessCount(undefined);
-      }, 3000);
-    } else {
-      setSaveStatus('error');
-      setSaveError(result.error ?? 'Save failed');
-    }
+  const handleSaveToSupabase = () => {
+    performSave(data);
   };
 
   if (!authChecked || (user && !isLoaded)) {
@@ -182,7 +219,7 @@ const App: React.FC = () => {
               onClick={handleSaveToSupabase}
               disabled={saveStatus === 'saving'}
               className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed transition-all shadow-sm"
-              title="Save to Supabase"
+              title="Save now (changes auto-save after 1.5s)"
             >
               {saveStatus === 'saving' && (
                 <>
