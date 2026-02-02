@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { FinancialData, IncomeEntry, Expense, TabType } from './types';
 import { SummaryCards } from './components/SummaryCards';
@@ -6,12 +6,9 @@ import { IncomeForm } from './components/IncomeForm';
 import { IncomeList } from './components/IncomeList';
 import { ExpenseForm } from './components/ExpenseForm';
 import { ExpenseList } from './components/ExpenseList';
-import { AnalyticsSummary } from './components/AnalyticsSummary';
-import { SpendingTrendChart } from './components/Charts/SpendingTrendChart';
-import { CategoryPieChart } from './components/Charts/CategoryPieChart';
-import { IncomeVsExpenseChart } from './components/Charts/IncomeVsExpenseChart';
-import { NetIncomeTrendChart } from './components/Charts/NetIncomeTrendChart';
 import { AuthPage } from './components/AuthPage';
+
+const AnalyticsView = lazy(() => import('./components/AnalyticsView').then((m) => ({ default: m.AnalyticsView })));
 import {
   LayoutDashboard,
   ReceiptText,
@@ -386,28 +383,11 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* Analytics View */}
+        {/* Analytics View (lazy-loaded with recharts) */}
         {activeTab === 'analytics' && (
-          <div className="space-y-8 animate-in zoom-in-95 duration-500">
-            <div className="flex items-center gap-3">
-              <div className="bg-red-600 p-1 rounded-full w-8 h-8 flex items-center justify-center">
-                <img src={LOGO_URL} className="w-6 h-6 invert" alt="Analytics Icon" />
-              </div>
-              <h2 className="text-2xl font-bold text-slate-800">Visual Insights</h2>
-            </div>
-            <div className="space-y-6">
-              <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">Summary</h3>
-              <AnalyticsSummary data={data} />
-            </div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <NetIncomeTrendChart data={data} />
-              <SpendingTrendChart expenses={data.expenses} />
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <CategoryPieChart expenses={data.expenses} />
-              <IncomeVsExpenseChart data={data} />
-            </div>
-          </div>
+          <Suspense fallback={<div className="flex items-center justify-center py-16"><span className="w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /></div>}>
+            <AnalyticsView data={data} />
+          </Suspense>
         )}
 
       </main>
