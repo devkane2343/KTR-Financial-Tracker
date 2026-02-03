@@ -39,4 +39,4 @@ export interface FinancialData {
   expenses: Expense[];
 }
 
-export type TabType = 'dashboard' | 'expenses' | 'analytics' | 'income' | 'profile';
+export type TabType = 'dashboard' | 'expenses' | 'analytics' | 'income' | 'profile' | 'admin';

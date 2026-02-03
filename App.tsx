@@ -8,6 +8,9 @@ import { ExpenseForm } from './components/ExpenseForm';
 import { ExpenseList } from './components/ExpenseList';
 import { AuthPage } from './components/AuthPage';
 import { ProfilePage } from './components/ProfilePage';
+import { AdminDashboard } from './components/AdminDashboard';
+import { NotificationBar } from './components/NotificationBar';
+import { AdminGuard } from './components/AdminGuard';
 
 const AnalyticsView = lazy(() => import('./components/AnalyticsView').then((m) => ({ default: m.AnalyticsView })));
 import {
@@ -21,11 +24,13 @@ import {
   AlertCircle,
   LogOut,
   User as UserIcon,
-  ChevronDown
+  ChevronDown,
+  Shield
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import { saveFinancialDataToSupabase, loadFinancialDataFromSupabase } from './lib/supabaseSave';
 import { getProfilePictureUrl } from './lib/profilePicture';
+import { isUserAdmin } from './lib/adminUtils';
 
 const LOGO_URL = '/logo.png';
 
@@ -44,6 +49,7 @@ const App: React.FC = () => {
   const [saveError, setSaveError] = useState<string>('');
   const [saveSuccessCount, setSaveSuccessCount] = useState<{ income: number; expenses: number } | undefined>(undefined);
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const dataRef = useRef(data);
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -114,6 +120,14 @@ const App: React.FC = () => {
     });
     return () => subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (user) {
+      isUserAdmin().then(setIsAdmin);
+    } else {
+      setIsAdmin(false);
+    }
+  }, [user]);
 
   useEffect(() => {
     if (!authChecked || !user) {
@@ -197,6 +211,7 @@ const App: React.FC = () => {
     { id: 'income', label: 'Income', icon: <History className="w-4 h-4" /> },
     { id: 'expenses', label: 'Expenses', icon: <ReceiptText className="w-4 h-4" /> },
     { id: 'analytics', label: 'Analytics', icon: <ChartIcon className="w-4 h-4" /> },
+    ...(isAdmin ? [{ id: 'admin', label: 'Admin', icon: <Shield className="w-4 h-4" /> }] : []),
   ];
 
   return (
@@ -229,6 +244,8 @@ const App: React.FC = () => {
           </nav>
 
           <div className="flex items-center gap-2">
+            <NotificationBar />
+            
             <button
               onClick={handleSaveToSupabase}
               disabled={saveStatus === 'saving'}
@@ -451,6 +468,13 @@ const App: React.FC = () => {
         {/* Profile View */}
         {activeTab === 'profile' && (
           <ProfilePage user={user} />
+        )}
+
+        {/* Admin View */}
+        {activeTab === 'admin' && (
+          <AdminGuard>
+            <AdminDashboard />
+          </AdminGuard>
         )}
 
       </main>
