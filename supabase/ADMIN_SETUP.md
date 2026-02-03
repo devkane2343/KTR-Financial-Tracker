@@ -64,9 +64,9 @@ If Option A doesn't work, follow these steps:
 ```sql
 INSERT INTO admin_users (user_id, email, granted_by)
 VALUES (
-  'YOUR_USER_ID_HERE',  -- Replace with the copied UUID
+  '4512fe15-f6d0-42cf-97bf-94884394d2d2',  -- Replace with the copied UUID
   'devkane2343@gmail.com',
-  'YOUR_USER_ID_HERE'   -- Replace with the copied UUID
+  '4512fe15-f6d0-42cf-97bf-94884394d2d2'   -- Replace with the copied UUID
 )
 ON CONFLICT (user_id) DO NOTHING;
 ```
