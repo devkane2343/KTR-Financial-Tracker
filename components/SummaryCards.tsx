@@ -16,13 +16,18 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ data }) => {
   const totalDeductions = incomeHistory.reduce((sum, inc) => sum + getDeductionsForEntry(inc), 0);
   const totalExpenses = expenses.reduce((sum, exp) => sum + exp.amount, 0);
   
-  // Total Savings = Emergency Fund + General Savings (per schema: expenses.category)
-  const totalSavings = expenses
+  // Total Savings = Emergency Fund + General Savings from salary deductions + savings expenses
+  const savingsFromIncome = incomeHistory.reduce(
+    (sum, inc) => sum + (inc.emergencyFund || 0) + (inc.generalSavings || 0),
+    0
+  );
+  const savingsFromExpenses = expenses
     .filter(e =>
       e.category === Category.EmergencyFund ||
       e.category === Category.GeneralSavings
     )
     .reduce((sum, e) => sum + e.amount, 0);
+  const totalSavings = savingsFromIncome + savingsFromExpenses;
 
   const currentBalance = totalNetIncome - totalExpenses;
 
