@@ -41,6 +41,7 @@ export interface UserWithDetails {
   created_at: string;
   last_sign_in_at?: string;
   full_name?: string;
+  avatar_url?: string | null;
   status: 'active' | 'suspended' | 'deleted';
   total_income: number;
   total_expenses: number;
@@ -143,6 +144,7 @@ export async function getAllUsersWithDetails(): Promise<UserWithDetails[]> {
       created_at: user.created_at,
       last_sign_in_at: user.last_sign_in_at,
       full_name: user.full_name,
+      avatar_url: user.avatar_url || null,
       status: user.status || 'active',
       total_income: Number(user.total_income) || 0,
       total_expenses: Number(user.total_expenses) || 0,

@@ -49,6 +49,29 @@ interface ActionModal {
   user?: UserWithDetails;
 }
 
+/** Avatar for admin users list: profile picture when available, else first letter initial. */
+function UserAvatar({ user, size = 'sm' }: { user: UserWithDetails; size?: 'sm' | 'lg' }) {
+  const [imgError, setImgError] = useState(false);
+  const showImg = user.avatar_url && !imgError;
+  const initial = (user.full_name || user.email).charAt(0).toUpperCase();
+  const sizeClass = size === 'lg' ? 'w-16 h-16 text-2xl' : 'w-10 h-10 text-sm';
+
+  return (
+    <div className={`${sizeClass} rounded-full flex-shrink-0 overflow-hidden flex items-center justify-center bg-gradient-to-br from-red-500 to-red-600 text-white font-bold`}>
+      {showImg ? (
+        <img
+          src={user.avatar_url!}
+          alt=""
+          className="w-full h-full object-cover"
+          onError={() => setImgError(true)}
+        />
+      ) : (
+        initial
+      )}
+    </div>
+  );
+}
+
 export const AdminDashboard: React.FC = () => {
   const [stats, setStats] = useState<UserStats | null>(null);
   const [users, setUsers] = useState<UserWithDetails[]>([]);
@@ -550,9 +573,7 @@ export const AdminDashboard: React.FC = () => {
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center text-white font-bold text-sm">
-                          {(user.full_name || user.email).charAt(0).toUpperCase()}
-                        </div>
+                        <UserAvatar user={user} />
                         <div>
                           <p className="font-semibold text-slate-900">{user.full_name || 'Unnamed User'}</p>
                           <p className="text-sm text-slate-500">{user.email}</p>
@@ -964,9 +985,7 @@ export const AdminDashboard: React.FC = () => {
           <div className="bg-white rounded-xl max-w-3xl w-full p-6 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
             <div className="flex items-start justify-between mb-6">
               <div className="flex items-center gap-4">
-                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center text-white font-bold text-2xl">
-                  {(actionModal.user.full_name || actionModal.user.email).charAt(0).toUpperCase()}
-                </div>
+                <UserAvatar user={actionModal.user} size="lg" />
                 <div>
                   <h3 className="text-2xl font-bold text-slate-900">{actionModal.user.full_name || 'Unnamed User'}</h3>
                   <p className="text-slate-600">{actionModal.user.email}</p>

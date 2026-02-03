@@ -3,6 +3,9 @@
 -- Run this in Supabase SQL Editor to fix "No users found" in Admin Dashboard
 -- =============================================================================
 
+-- Drop existing function first (required when changing return type)
+DROP FUNCTION IF EXISTS get_all_users_with_details();
+
 CREATE OR REPLACE FUNCTION get_all_users_with_details()
 RETURNS TABLE (
   id UUID,
@@ -10,6 +13,7 @@ RETURNS TABLE (
   created_at TIMESTAMPTZ,
   last_sign_in_at TIMESTAMPTZ,
   full_name TEXT,
+  avatar_url TEXT,
   status TEXT,
   total_income NUMERIC,
   total_expenses NUMERIC,
@@ -31,6 +35,7 @@ BEGIN
     u.created_at,
     u.last_sign_in_at,
     (u.raw_user_meta_data->>'full_name')::TEXT as full_name,
+    (u.raw_user_meta_data->>'avatar_url')::TEXT as avatar_url,
     COALESCE(ua.status, 'active')::TEXT as status,
     COALESCE(income_sum.total, 0)::NUMERIC as total_income,
     COALESCE(expense_sum.total, 0)::NUMERIC as total_expenses,
