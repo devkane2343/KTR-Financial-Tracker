@@ -114,64 +114,39 @@ export async function getUserStatistics(): Promise<UserStats | null> {
  */
 export async function getAllUsersWithDetails(): Promise<UserWithDetails[]> {
   try {
-    // First, get all users from auth.users via admin API
-    const { data: { users }, error: usersError } = await supabase.auth.admin.listUsers();
+    console.log('Fetching users with details via RPC...');
+    
+    // Use the secure database function instead of admin API
+    const { data, error } = await supabase.rpc('get_all_users_with_details');
 
-    if (usersError) {
-      console.error('Error fetching users:', usersError);
+    if (error) {
+      console.error('Error fetching users:', error);
+      console.log('Error details:', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint
+      });
       return [];
     }
 
-    // Get user accounts status
-    const { data: accounts } = await supabase
-      .from('user_accounts')
-      .select('user_id, status');
+    if (!data) {
+      console.log('No data returned from get_all_users_with_details');
+      return [];
+    }
 
-    // Get income totals
-    const { data: incomeTotals } = await supabase
-      .from('income_history')
-      .select('user_id, weekly_salary');
-
-    // Get expense totals
-    const { data: expenseTotals } = await supabase
-      .from('expenses')
-      .select('user_id, amount');
-
-    // Get notification counts
-    const { data: notificationCounts } = await supabase
-      .from('user_notifications')
-      .select('user_id, is_read');
-
-    const accountsMap = new Map(accounts?.map(a => [a.user_id, a.status]) || []);
+    console.log(`Successfully fetched ${data.length} users`);
     
-    const incomeMap = new Map<string, number>();
-    incomeTotals?.forEach(i => {
-      const current = incomeMap.get(i.user_id) || 0;
-      incomeMap.set(i.user_id, current + Number(i.weekly_salary));
-    });
-
-    const expenseMap = new Map<string, number>();
-    expenseTotals?.forEach(e => {
-      const current = expenseMap.get(e.user_id) || 0;
-      expenseMap.set(e.user_id, current + Number(e.amount));
-    });
-
-    const notificationMap = new Map<string, number>();
-    notificationCounts?.forEach(n => {
-      const current = notificationMap.get(n.user_id) || 0;
-      notificationMap.set(n.user_id, current + 1);
-    });
-
-    return users.map(user => ({
+    return data.map((user: any) => ({
       id: user.id,
       email: user.email || '',
       created_at: user.created_at,
       last_sign_in_at: user.last_sign_in_at,
-      full_name: user.user_metadata?.full_name,
-      status: accountsMap.get(user.id) || 'active',
-      total_income: incomeMap.get(user.id) || 0,
-      total_expenses: expenseMap.get(user.id) || 0,
-      notification_count: notificationMap.get(user.id) || 0,
+      full_name: user.full_name,
+      status: user.status || 'active',
+      total_income: Number(user.total_income) || 0,
+      total_expenses: Number(user.total_expenses) || 0,
+      notification_count: Number(user.notification_count) || 0,
     }));
   } catch (err) {
     console.error('Error in getAllUsersWithDetails:', err);
@@ -286,19 +261,13 @@ export async function suspendUserAccount(
         return { success: false, error: error.message };
       }
     } else {
-      // Create new record
-      const { data: { users } } = await supabase.auth.admin.listUsers();
-      const targetUser = users.find(u => u.id === userId);
-      
-      if (!targetUser) {
-        return { success: false, error: 'User not found' };
-      }
-
+      // Create new record - we need to get user email
+      // Use a simpler approach: just insert without email verification
       const { error } = await supabase
         .from('user_accounts')
         .insert({
           user_id: userId,
-          email: targetUser.email || '',
+          email: '', // Email will be fetched from auth.users via join in queries
           status: 'suspended',
           suspended_at: new Date().toISOString(),
           suspended_by: user.id,
@@ -398,19 +367,13 @@ export async function deleteUserAccount(
         return { success: false, error: error.message };
       }
     } else {
-      // Create new record
-      const { data: { users } } = await supabase.auth.admin.listUsers();
-      const targetUser = users.find(u => u.id === userId);
-      
-      if (!targetUser) {
-        return { success: false, error: 'User not found' };
-      }
-
+      // Create new record - we need to get user email
+      // Use a simpler approach: just insert without email verification
       const { error } = await supabase
         .from('user_accounts')
         .insert({
           user_id: userId,
-          email: targetUser.email || '',
+          email: '', // Email will be fetched from auth.users via join in queries
           status: 'deleted',
           deleted_at: new Date().toISOString(),
           deleted_by: user.id,

@@ -334,17 +334,17 @@ const App: React.FC = () => {
       </header>
 
       {/* Mobile Bottom Navigation */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-4 py-2 flex justify-around items-center z-50">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-2 py-2 flex justify-around items-center z-50 shadow-lg">
         {navItems.map((item) => (
           <button
             key={item.id}
             onClick={() => setActiveTab(item.id as TabType)}
-            className={`flex flex-col items-center gap-1 p-2 transition-all ${
-              activeTab === item.id ? 'text-red-600' : 'text-slate-400'
+            className={`flex flex-col items-center gap-1 px-2 py-2 rounded-lg transition-all min-w-0 ${
+              activeTab === item.id ? 'text-red-600 bg-red-50' : 'text-slate-400'
             }`}
           >
             {item.icon}
-            <span className="text-[10px] font-medium">{item.label}</span>
+            <span className="text-[10px] font-medium truncate max-w-[60px]">{item.label}</span>
           </button>
         ))}
       </nav>
@@ -354,6 +354,31 @@ const App: React.FC = () => {
         {/* Dashboard View */}
         {activeTab === 'dashboard' && (
           <div className="space-y-8 animate-in fade-in duration-500">
+            {/* Welcome Message - Shows on top for mobile */}
+            <div className="lg:hidden">
+              <div className="bg-gradient-to-br from-emerald-100 to-white rounded-xl p-6 text-slate-800 shadow-xl shadow-slate-200 relative overflow-hidden">
+                <div className="relative z-10">
+                  <h3 className="text-lg font-bold mb-2">
+                    {user?.user_metadata?.full_name
+                      ? `Welcome, ${user.user_metadata.full_name}`
+                      : 'Welcome'}
+                  </h3>
+                  <p className="text-slate-600 text-sm mb-4">Observe every flow of your currency with precision. Log your salary history to unlock full insights.</p>
+                  <button 
+                    onClick={() => setActiveTab('income')}
+                    className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-red-700 transition-colors shadow-lg shadow-red-900/20"
+                  >
+                    Log Paycheck <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+                <img 
+                  src={LOGO_URL} 
+                  className="absolute -right-6 -bottom-6 w-40 h-40 opacity-10 rotate-12 pointer-events-none" 
+                  alt="Watermark" 
+                />
+              </div>
+            </div>
+
             <div>
               <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">Financial Overview</h2>
               <SummaryCards data={data} />
@@ -361,7 +386,8 @@ const App: React.FC = () => {
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
               <div className="lg:col-span-3 space-y-6">
-                 <div className="bg-gradient-to-br from-emerald-100 to-white rounded-xl p-6 text-slate-800 shadow-xl shadow-slate-200 relative overflow-hidden">
+                 {/* Welcome Message - Shows in sidebar for desktop */}
+                 <div className="hidden lg:block bg-gradient-to-br from-emerald-100 to-white rounded-xl p-6 text-slate-800 shadow-xl shadow-slate-200 relative overflow-hidden">
                     <div className="relative z-10">
                       <h3 className="text-lg font-bold mb-2">
                         {user?.user_metadata?.full_name
