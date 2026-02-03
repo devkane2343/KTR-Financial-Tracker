@@ -17,6 +17,17 @@ import {
   TrendingDown,
   Mail,
   AlertCircle,
+  Eye,
+  X,
+  Calendar,
+  Clock,
+  Activity,
+  Bell,
+  ChevronDown,
+  ChevronUp,
+  Download,
+  MoreVertical,
+  Shield,
 } from 'lucide-react';
 import {
   getUserStatistics,
@@ -29,6 +40,14 @@ import {
   UserWithDetails,
   UserStats,
 } from '../lib/adminUtils';
+
+type SortField = 'email' | 'created_at' | 'total_income' | 'total_expenses' | 'last_sign_in_at';
+type SortDirection = 'asc' | 'desc';
+
+interface ActionModal {
+  type: 'suspend' | 'delete' | 'reactivate' | 'message' | 'details' | null;
+  user?: UserWithDetails;
+}
 
 export const AdminDashboard: React.FC = () => {
   const [stats, setStats] = useState<UserStats | null>(null);
@@ -44,6 +63,11 @@ export const AdminDashboard: React.FC = () => {
   const [messageType, setMessageType] = useState<'info' | 'warning' | 'success' | 'error'>('info');
   const [actionLoading, setActionLoading] = useState(false);
   const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [sortField, setSortField] = useState<SortField>('created_at');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [actionModal, setActionModal] = useState<ActionModal>({ type: null });
+  const [actionReason, setActionReason] = useState('');
+  const [openMenuUserId, setOpenMenuUserId] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -51,7 +75,7 @@ export const AdminDashboard: React.FC = () => {
 
   useEffect(() => {
     filterUsers();
-  }, [users, searchTerm, statusFilter]);
+  }, [users, searchTerm, statusFilter, sortField, sortDirection]);
 
   const loadData = async () => {
     setLoading(true);
@@ -80,7 +104,37 @@ export const AdminDashboard: React.FC = () => {
       );
     }
 
+    // Sort users
+    filtered = [...filtered].sort((a, b) => {
+      let aVal: any = a[sortField];
+      let bVal: any = b[sortField];
+
+      // Handle null/undefined values
+      if (aVal === null || aVal === undefined) aVal = '';
+      if (bVal === null || bVal === undefined) bVal = '';
+
+      // Convert to numbers for numeric fields
+      if (sortField === 'total_income' || sortField === 'total_expenses') {
+        aVal = Number(aVal);
+        bVal = Number(bVal);
+      }
+
+      // Compare
+      if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+
     setFilteredUsers(filtered);
+  };
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('desc');
+    }
   };
 
   const handleSelectUser = (userId: string) => {
@@ -110,28 +164,43 @@ export const AdminDashboard: React.FC = () => {
     }
 
     setActionLoading(true);
-    const userIds = Array.from(selectedUsers);
-    const result = await sendNotificationToMultipleUsers(userIds, messageTitle, messageBody, messageType);
     
-    if (result.success) {
-      setActionMessage({ type: 'success', text: `Message sent to ${result.sentCount} user(s)` });
-      setShowMessageModal(false);
-      setMessageTitle('');
-      setMessageBody('');
-      setSelectedUsers(new Set());
-      setTimeout(() => setActionMessage(null), 3000);
+    // Check if it's a single user message or bulk
+    if (actionModal.type === 'message' && actionModal.user) {
+      const result = await sendNotificationToUser(actionModal.user.id, messageTitle, messageBody, messageType);
+      if (result.success) {
+        setActionMessage({ type: 'success', text: 'Message sent successfully' });
+      } else {
+        setActionMessage({ type: 'error', text: result.error || 'Failed to send message' });
+      }
     } else {
-      setActionMessage({ type: 'error', text: result.error || 'Failed to send message' });
+      const userIds = Array.from(selectedUsers);
+      const result = await sendNotificationToMultipleUsers(userIds, messageTitle, messageBody, messageType);
+      
+      if (result.success) {
+        setActionMessage({ type: 'success', text: `Message sent to ${result.sentCount} user(s)` });
+        setSelectedUsers(new Set());
+      } else {
+        setActionMessage({ type: 'error', text: result.error || 'Failed to send message' });
+      }
     }
+    
+    setShowMessageModal(false);
+    setActionModal({ type: null });
+    setMessageTitle('');
+    setMessageBody('');
+    setTimeout(() => setActionMessage(null), 3000);
     setActionLoading(false);
   };
 
-  const handleSuspendUser = async (userId: string, email: string) => {
-    const reason = prompt(`Enter suspension reason for ${email}:`);
-    if (!reason) return;
+  const handleSuspendUser = async () => {
+    if (!actionModal.user || !actionReason.trim()) {
+      setActionMessage({ type: 'error', text: 'Please provide a reason' });
+      return;
+    }
 
     setActionLoading(true);
-    const result = await suspendUserAccount(userId, reason);
+    const result = await suspendUserAccount(actionModal.user.id, actionReason);
     
     if (result.success) {
       setActionMessage({ type: 'success', text: 'User suspended successfully' });
@@ -140,14 +209,17 @@ export const AdminDashboard: React.FC = () => {
     } else {
       setActionMessage({ type: 'error', text: result.error || 'Failed to suspend user' });
     }
+    
+    setActionModal({ type: null });
+    setActionReason('');
     setActionLoading(false);
   };
 
-  const handleReactivateUser = async (userId: string, email: string) => {
-    if (!confirm(`Reactivate account for ${email}?`)) return;
+  const handleReactivateUser = async () => {
+    if (!actionModal.user) return;
 
     setActionLoading(true);
-    const result = await reactivateUserAccount(userId);
+    const result = await reactivateUserAccount(actionModal.user.id);
     
     if (result.success) {
       setActionMessage({ type: 'success', text: 'User reactivated successfully' });
@@ -156,17 +228,19 @@ export const AdminDashboard: React.FC = () => {
     } else {
       setActionMessage({ type: 'error', text: result.error || 'Failed to reactivate user' });
     }
+    
+    setActionModal({ type: null });
     setActionLoading(false);
   };
 
-  const handleDeleteUser = async (userId: string, email: string) => {
-    const reason = prompt(`Enter deletion reason for ${email}:`);
-    if (!reason) return;
-
-    if (!confirm(`Are you sure you want to delete ${email}? This action cannot be undone.`)) return;
+  const handleDeleteUser = async () => {
+    if (!actionModal.user || !actionReason.trim()) {
+      setActionMessage({ type: 'error', text: 'Please provide a reason' });
+      return;
+    }
 
     setActionLoading(true);
-    const result = await deleteUserAccount(userId, reason);
+    const result = await deleteUserAccount(actionModal.user.id, actionReason);
     
     if (result.success) {
       setActionMessage({ type: 'success', text: 'User deleted successfully' });
@@ -175,7 +249,39 @@ export const AdminDashboard: React.FC = () => {
     } else {
       setActionMessage({ type: 'error', text: result.error || 'Failed to delete user' });
     }
+    
+    setActionModal({ type: null });
+    setActionReason('');
     setActionLoading(false);
+  };
+
+  const exportToCSV = () => {
+    const csvRows = [];
+    const headers = ['Email', 'Name', 'Status', 'Total Income', 'Total Expenses', 'Net Amount', 'Joined', 'Last Sign In'];
+    csvRows.push(headers.join(','));
+
+    filteredUsers.forEach(user => {
+      const row = [
+        user.email,
+        user.full_name || 'N/A',
+        user.status,
+        user.total_income,
+        user.total_expenses,
+        user.total_income - user.total_expenses,
+        new Date(user.created_at).toLocaleDateString(),
+        user.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleDateString() : 'Never',
+      ];
+      csvRows.push(row.join(','));
+    });
+
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `users-export-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
   };
 
   const formatCurrency = (amount: number) => {
@@ -196,19 +302,31 @@ export const AdminDashboard: React.FC = () => {
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900">Admin Dashboard</h2>
-          <p className="text-sm text-slate-600 mt-1">Manage users and send notifications</p>
+          <div className="flex items-center gap-2">
+            <Shield className="w-7 h-7 text-red-600" />
+            <h2 className="text-2xl font-bold text-slate-900">Admin Dashboard</h2>
+          </div>
+          <p className="text-sm text-slate-600 mt-1">Comprehensive user management and analytics</p>
         </div>
-        <button
-          onClick={loadData}
-          disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors disabled:opacity-50"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={exportToCSV}
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg transition-colors text-sm font-medium"
+          >
+            <Download className="w-4 h-4" />
+            Export CSV
+          </button>
+          <button
+            onClick={loadData}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors disabled:opacity-50 text-sm font-medium"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Action Message */}
@@ -224,36 +342,50 @@ export const AdminDashboard: React.FC = () => {
       {/* Statistics Cards */}
       {stats && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-            <div className="flex items-center justify-between mb-2">
-              <Users className="w-8 h-8 text-blue-600" />
-              <span className="text-2xl font-bold text-slate-900">{stats.total_users}</span>
+          <div className="bg-gradient-to-br from-blue-50 to-white rounded-xl p-6 border border-blue-100 shadow-sm hover:shadow-md transition-shadow">
+            <div className="flex items-center justify-between mb-3">
+              <div className="p-3 bg-blue-100 rounded-lg">
+                <Users className="w-6 h-6 text-blue-600" />
+              </div>
+              <span className="text-3xl font-bold text-slate-900">{stats.total_users}</span>
             </div>
-            <p className="text-sm text-slate-600 font-medium">Total Users</p>
+            <p className="text-sm text-slate-600 font-semibold">Total Users</p>
+            <p className="text-xs text-slate-500 mt-1">All registered accounts</p>
           </div>
 
-          <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-            <div className="flex items-center justify-between mb-2">
-              <UserCheck className="w-8 h-8 text-emerald-600" />
-              <span className="text-2xl font-bold text-slate-900">{stats.active_users}</span>
+          <div className="bg-gradient-to-br from-emerald-50 to-white rounded-xl p-6 border border-emerald-100 shadow-sm hover:shadow-md transition-shadow">
+            <div className="flex items-center justify-between mb-3">
+              <div className="p-3 bg-emerald-100 rounded-lg">
+                <UserCheck className="w-6 h-6 text-emerald-600" />
+              </div>
+              <span className="text-3xl font-bold text-slate-900">{stats.active_users}</span>
             </div>
-            <p className="text-sm text-slate-600 font-medium">Active Users</p>
+            <p className="text-sm text-slate-600 font-semibold">Active Users</p>
+            <p className="text-xs text-slate-500 mt-1">
+              {stats.total_users > 0 ? Math.round((stats.active_users / stats.total_users) * 100) : 0}% of total
+            </p>
           </div>
 
-          <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-            <div className="flex items-center justify-between mb-2">
-              <UserMinus className="w-8 h-8 text-amber-600" />
-              <span className="text-2xl font-bold text-slate-900">{stats.suspended_users}</span>
+          <div className="bg-gradient-to-br from-amber-50 to-white rounded-xl p-6 border border-amber-100 shadow-sm hover:shadow-md transition-shadow">
+            <div className="flex items-center justify-between mb-3">
+              <div className="p-3 bg-amber-100 rounded-lg">
+                <UserMinus className="w-6 h-6 text-amber-600" />
+              </div>
+              <span className="text-3xl font-bold text-slate-900">{stats.suspended_users}</span>
             </div>
-            <p className="text-sm text-slate-600 font-medium">Suspended</p>
+            <p className="text-sm text-slate-600 font-semibold">Suspended</p>
+            <p className="text-xs text-slate-500 mt-1">Temporarily disabled</p>
           </div>
 
-          <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-            <div className="flex items-center justify-between mb-2">
-              <UserX className="w-8 h-8 text-red-600" />
-              <span className="text-2xl font-bold text-slate-900">{stats.deleted_users}</span>
+          <div className="bg-gradient-to-br from-red-50 to-white rounded-xl p-6 border border-red-100 shadow-sm hover:shadow-md transition-shadow">
+            <div className="flex items-center justify-between mb-3">
+              <div className="p-3 bg-red-100 rounded-lg">
+                <UserX className="w-6 h-6 text-red-600" />
+              </div>
+              <span className="text-3xl font-bold text-slate-900">{stats.deleted_users}</span>
             </div>
-            <p className="text-sm text-slate-600 font-medium">Deleted</p>
+            <p className="text-sm text-slate-600 font-semibold">Deleted</p>
+            <p className="text-xs text-slate-500 mt-1">Soft deleted accounts</p>
           </div>
         </div>
       )}
@@ -311,6 +443,20 @@ export const AdminDashboard: React.FC = () => {
 
       {/* Users Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-bold text-slate-900">Users List</h3>
+            <p className="text-sm text-slate-600 mt-1">
+              Showing {filteredUsers.length} of {users.length} users
+            </p>
+          </div>
+          {filteredUsers.length > 0 && (
+            <span className="text-xs text-slate-500">
+              Click column headers to sort
+            </span>
+          )}
+        </div>
+        
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-slate-50 border-b border-slate-200">
@@ -323,23 +469,66 @@ export const AdminDashboard: React.FC = () => {
                     className="w-4 h-4 rounded border-slate-300 text-red-600 focus:ring-red-500"
                   />
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  User
+                <th 
+                  className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors"
+                  onClick={() => handleSort('email')}
+                >
+                  <div className="flex items-center gap-1">
+                    User
+                    {sortField === 'email' && (
+                      sortDirection === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+                    )}
+                  </div>
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                   Status
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Income
+                <th 
+                  className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors"
+                  onClick={() => handleSort('total_income')}
+                >
+                  <div className="flex items-center gap-1">
+                    Income
+                    {sortField === 'total_income' && (
+                      sortDirection === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+                    )}
+                  </div>
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Expenses
+                <th 
+                  className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors"
+                  onClick={() => handleSort('total_expenses')}
+                >
+                  <div className="flex items-center gap-1">
+                    Expenses
+                    {sortField === 'total_expenses' && (
+                      sortDirection === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+                    )}
+                  </div>
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                   Net
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Joined
+                <th 
+                  className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors"
+                  onClick={() => handleSort('created_at')}
+                >
+                  <div className="flex items-center gap-1">
+                    Joined
+                    {sortField === 'created_at' && (
+                      sortDirection === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+                    )}
+                  </div>
+                </th>
+                <th 
+                  className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider cursor-pointer hover:bg-slate-100 transition-colors"
+                  onClick={() => handleSort('last_sign_in_at')}
+                >
+                  <div className="flex items-center gap-1">
+                    Last Active
+                    {sortField === 'last_sign_in_at' && (
+                      sortDirection === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+                    )}
+                  </div>
                 </th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">
                   Actions
@@ -360,47 +549,75 @@ export const AdminDashboard: React.FC = () => {
                       />
                     </td>
                     <td className="px-4 py-4">
-                      <div>
-                        <p className="font-medium text-slate-900">{user.full_name || 'N/A'}</p>
-                        <p className="text-sm text-slate-500">{user.email}</p>
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center text-white font-bold text-sm">
+                          {(user.full_name || user.email).charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="font-semibold text-slate-900">{user.full_name || 'Unnamed User'}</p>
+                          <p className="text-sm text-slate-500">{user.email}</p>
+                        </div>
                       </div>
                     </td>
                     <td className="px-4 py-4">
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${
-                        user.status === 'active' ? 'bg-emerald-100 text-emerald-700' :
-                        user.status === 'suspended' ? 'bg-amber-100 text-amber-700' :
-                        'bg-red-100 text-red-700'
+                      <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ${
+                        user.status === 'active' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' :
+                        user.status === 'suspended' ? 'bg-amber-100 text-amber-700 border border-amber-200' :
+                        'bg-red-100 text-red-700 border border-red-200'
                       }`}>
-                        {user.status === 'active' && <UserCheck className="w-3 h-3" />}
-                        {user.status === 'suspended' && <UserMinus className="w-3 h-3" />}
-                        {user.status === 'deleted' && <UserX className="w-3 h-3" />}
+                        {user.status === 'active' && <UserCheck className="w-3.5 h-3.5" />}
+                        {user.status === 'suspended' && <UserMinus className="w-3.5 h-3.5" />}
+                        {user.status === 'deleted' && <UserX className="w-3.5 h-3.5" />}
                         {user.status.charAt(0).toUpperCase() + user.status.slice(1)}
                       </span>
                     </td>
                     <td className="px-4 py-4">
-                      <div className="flex items-center gap-1 text-emerald-600 font-medium">
+                      <div className="flex items-center gap-1.5 text-emerald-600 font-semibold text-sm">
                         <TrendingUp className="w-4 h-4" />
                         {formatCurrency(user.total_income)}
                       </div>
                     </td>
                     <td className="px-4 py-4">
-                      <div className="flex items-center gap-1 text-red-600 font-medium">
+                      <div className="flex items-center gap-1.5 text-red-600 font-semibold text-sm">
                         <TrendingDown className="w-4 h-4" />
                         {formatCurrency(user.total_expenses)}
                       </div>
                     </td>
                     <td className="px-4 py-4">
-                      <span className={`font-bold ${netAmount >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                      <span className={`font-bold text-sm ${netAmount >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                         {formatCurrency(netAmount)}
                       </span>
                     </td>
-                    <td className="px-4 py-4 text-sm text-slate-600">
-                      {new Date(user.created_at).toLocaleDateString()}
+                    <td className="px-4 py-4">
+                      <div className="flex items-center gap-1.5 text-sm text-slate-600">
+                        <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                        {new Date(user.created_at).toLocaleDateString()}
+                      </div>
                     </td>
                     <td className="px-4 py-4">
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="flex items-center gap-1.5 text-sm text-slate-600">
+                        <Clock className="w-3.5 h-3.5 text-slate-400" />
+                        {user.last_sign_in_at 
+                          ? new Date(user.last_sign_in_at).toLocaleDateString()
+                          : <span className="text-slate-400 italic">Never</span>
+                        }
+                      </div>
+                    </td>
+                    <td className="px-4 py-4">
+                      <div className="flex items-center justify-end gap-1.5">
                         <button
-                          onClick={() => sendNotificationToUser(user.id, 'Admin Message', 'You have a new message from admin', 'info')}
+                          onClick={() => setActionModal({ type: 'details', user })}
+                          className="p-2 hover:bg-slate-100 text-slate-600 rounded-lg transition-colors"
+                          title="View details"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        
+                        <button
+                          onClick={() => {
+                            setActionModal({ type: 'message', user });
+                            setShowMessageModal(true);
+                          }}
                           className="p-2 hover:bg-blue-50 text-blue-600 rounded-lg transition-colors"
                           title="Send message"
                         >
@@ -409,7 +626,7 @@ export const AdminDashboard: React.FC = () => {
                         
                         {user.status === 'active' && (
                           <button
-                            onClick={() => handleSuspendUser(user.id, user.email)}
+                            onClick={() => setActionModal({ type: 'suspend', user })}
                             className="p-2 hover:bg-amber-50 text-amber-600 rounded-lg transition-colors"
                             title="Suspend user"
                           >
@@ -419,7 +636,7 @@ export const AdminDashboard: React.FC = () => {
                         
                         {user.status === 'suspended' && (
                           <button
-                            onClick={() => handleReactivateUser(user.id, user.email)}
+                            onClick={() => setActionModal({ type: 'reactivate', user })}
                             className="p-2 hover:bg-emerald-50 text-emerald-600 rounded-lg transition-colors"
                             title="Reactivate user"
                           >
@@ -428,7 +645,7 @@ export const AdminDashboard: React.FC = () => {
                         )}
                         
                         <button
-                          onClick={() => handleDeleteUser(user.id, user.email)}
+                          onClick={() => setActionModal({ type: 'delete', user })}
                           className="p-2 hover:bg-red-50 text-red-600 rounded-lg transition-colors"
                           title="Delete user"
                         >
@@ -455,60 +672,91 @@ export const AdminDashboard: React.FC = () => {
       {showMessageModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl max-w-2xl w-full p-6 animate-in fade-in zoom-in-95 duration-200">
-            <h3 className="text-xl font-bold text-slate-900 mb-4">Send Message to Selected Users</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-slate-900">
+                {actionModal.user ? `Send Message to ${actionModal.user.email}` : 'Send Message to Selected Users'}
+              </h3>
+              <button
+                onClick={() => {
+                  setShowMessageModal(false);
+                  setActionModal({ type: null });
+                  setMessageTitle('');
+                  setMessageBody('');
+                }}
+                className="p-1 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
             
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Message Type</label>
-                <select
-                  value={messageType}
-                  onChange={(e) => setMessageType(e.target.value as any)}
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                >
-                  <option value="info">Info</option>
-                  <option value="success">Success</option>
-                  <option value="warning">Warning</option>
-                  <option value="error">Error</option>
-                </select>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Message Type</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {(['info', 'success', 'warning', 'error'] as const).map((type) => (
+                    <button
+                      key={type}
+                      onClick={() => setMessageType(type)}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                        messageType === type
+                          ? type === 'info' ? 'bg-blue-600 text-white' :
+                            type === 'success' ? 'bg-emerald-600 text-white' :
+                            type === 'warning' ? 'bg-amber-600 text-white' :
+                            'bg-red-600 text-white'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      {type.charAt(0).toUpperCase() + type.slice(1)}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Title</label>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Title</label>
                 <input
                   type="text"
                   value={messageTitle}
                   onChange={(e) => setMessageTitle(e.target.value)}
                   placeholder="Enter message title..."
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                  className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Message</label>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Message</label>
                 <textarea
                   value={messageBody}
                   onChange={(e) => setMessageBody(e.target.value)}
                   placeholder="Enter your message..."
                   rows={6}
-                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 resize-none"
+                  className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 resize-none"
                 />
               </div>
 
-              <div className="text-sm text-slate-600 bg-slate-50 p-3 rounded-lg">
-                This message will be sent to <span className="font-bold">{selectedUsers.size}</span> user(s)
+              <div className="text-sm text-slate-600 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                <Bell className="w-4 h-4 inline mr-2" />
+                This message will be sent to <span className="font-bold">
+                  {actionModal.user ? '1 user' : `${selectedUsers.size} user(s)`}
+                </span>
               </div>
 
-              <div className="flex gap-3 justify-end">
+              <div className="flex gap-3 justify-end pt-2">
                 <button
-                  onClick={() => setShowMessageModal(false)}
-                  className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
+                  onClick={() => {
+                    setShowMessageModal(false);
+                    setActionModal({ type: null });
+                    setMessageTitle('');
+                    setMessageBody('');
+                  }}
+                  className="px-5 py-2.5 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors font-medium"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleSendMessage}
-                  disabled={actionLoading}
-                  className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
+                  disabled={actionLoading || !messageTitle || !messageBody}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                 >
                   {actionLoading ? (
                     <>
@@ -523,6 +771,316 @@ export const AdminDashboard: React.FC = () => {
                   )}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Suspend User Modal */}
+      {actionModal.type === 'suspend' && actionModal.user && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-lg w-full p-6 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 bg-amber-100 rounded-full">
+                <Ban className="w-6 h-6 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-slate-900">Suspend User Account</h3>
+                <p className="text-sm text-slate-600">{actionModal.user.email}</p>
+              </div>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                <p className="text-sm text-amber-800">
+                  The user will be temporarily unable to access their account. They will receive a notification about this suspension.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Suspension Reason *</label>
+                <textarea
+                  value={actionReason}
+                  onChange={(e) => setActionReason(e.target.value)}
+                  placeholder="Enter the reason for suspension (required)..."
+                  rows={4}
+                  className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none"
+                />
+              </div>
+
+              <div className="flex gap-3 justify-end pt-2">
+                <button
+                  onClick={() => {
+                    setActionModal({ type: null });
+                    setActionReason('');
+                  }}
+                  className="px-5 py-2.5 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSuspendUser}
+                  disabled={actionLoading || !actionReason.trim()}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                >
+                  {actionLoading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Suspending...
+                    </>
+                  ) : (
+                    <>
+                      <Ban className="w-4 h-4" />
+                      Suspend Account
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reactivate User Modal */}
+      {actionModal.type === 'reactivate' && actionModal.user && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-lg w-full p-6 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 bg-emerald-100 rounded-full">
+                <RotateCcw className="w-6 h-6 text-emerald-600" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-slate-900">Reactivate User Account</h3>
+                <p className="text-sm text-slate-600">{actionModal.user.email}</p>
+              </div>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
+                <p className="text-sm text-emerald-800">
+                  This will restore full access to the user's account. They will receive a notification about the reactivation.
+                </p>
+              </div>
+
+              <div className="flex gap-3 justify-end pt-2">
+                <button
+                  onClick={() => setActionModal({ type: null })}
+                  className="px-5 py-2.5 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleReactivateUser}
+                  disabled={actionLoading}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50 font-medium"
+                >
+                  {actionLoading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Reactivating...
+                    </>
+                  ) : (
+                    <>
+                      <RotateCcw className="w-4 h-4" />
+                      Reactivate Account
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete User Modal */}
+      {actionModal.type === 'delete' && actionModal.user && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-lg w-full p-6 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 bg-red-100 rounded-full">
+                <Trash2 className="w-6 h-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-slate-900">Delete User Account</h3>
+                <p className="text-sm text-slate-600">{actionModal.user.email}</p>
+              </div>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm text-red-800 font-semibold mb-1">⚠️ Warning: This is a soft delete</p>
+                <p className="text-sm text-red-700">
+                  The user account will be marked as deleted. Their data will be preserved but they won't be able to access their account.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Deletion Reason *</label>
+                <textarea
+                  value={actionReason}
+                  onChange={(e) => setActionReason(e.target.value)}
+                  placeholder="Enter the reason for deletion (required)..."
+                  rows={4}
+                  className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 resize-none"
+                />
+              </div>
+
+              <div className="flex gap-3 justify-end pt-2">
+                <button
+                  onClick={() => {
+                    setActionModal({ type: null });
+                    setActionReason('');
+                  }}
+                  className="px-5 py-2.5 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteUser}
+                  disabled={actionLoading || !actionReason.trim()}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                >
+                  {actionLoading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      Delete Account
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* User Details Modal */}
+      {actionModal.type === 'details' && actionModal.user && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-3xl w-full p-6 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between mb-6">
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center text-white font-bold text-2xl">
+                  {(actionModal.user.full_name || actionModal.user.email).charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <h3 className="text-2xl font-bold text-slate-900">{actionModal.user.full_name || 'Unnamed User'}</h3>
+                  <p className="text-slate-600">{actionModal.user.email}</p>
+                  <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold mt-2 ${
+                    actionModal.user.status === 'active' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' :
+                    actionModal.user.status === 'suspended' ? 'bg-amber-100 text-amber-700 border border-amber-200' :
+                    'bg-red-100 text-red-700 border border-red-200'
+                  }`}>
+                    {actionModal.user.status === 'active' && <UserCheck className="w-3 h-3" />}
+                    {actionModal.user.status === 'suspended' && <UserMinus className="w-3 h-3" />}
+                    {actionModal.user.status === 'deleted' && <UserX className="w-3 h-3" />}
+                    {actionModal.user.status.charAt(0).toUpperCase() + actionModal.user.status.slice(1)}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setActionModal({ type: null })}
+                className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+              <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+                <div className="flex items-center gap-2 mb-2">
+                  <Calendar className="w-4 h-4 text-slate-500" />
+                  <span className="text-sm font-medium text-slate-600">Joined</span>
+                </div>
+                <p className="text-lg font-semibold text-slate-900">
+                  {new Date(actionModal.user.created_at).toLocaleDateString('en-US', { 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric' 
+                  })}
+                </p>
+              </div>
+
+              <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+                <div className="flex items-center gap-2 mb-2">
+                  <Clock className="w-4 h-4 text-slate-500" />
+                  <span className="text-sm font-medium text-slate-600">Last Active</span>
+                </div>
+                <p className="text-lg font-semibold text-slate-900">
+                  {actionModal.user.last_sign_in_at 
+                    ? new Date(actionModal.user.last_sign_in_at).toLocaleDateString('en-US', { 
+                        year: 'numeric', 
+                        month: 'long', 
+                        day: 'numeric' 
+                      })
+                    : 'Never'
+                  }
+                </p>
+              </div>
+
+              <div className="bg-gradient-to-br from-emerald-50 to-white rounded-lg p-4 border border-emerald-200">
+                <div className="flex items-center gap-2 mb-2">
+                  <TrendingUp className="w-4 h-4 text-emerald-600" />
+                  <span className="text-sm font-medium text-emerald-700">Total Income</span>
+                </div>
+                <p className="text-2xl font-bold text-emerald-600">
+                  {formatCurrency(actionModal.user.total_income)}
+                </p>
+              </div>
+
+              <div className="bg-gradient-to-br from-red-50 to-white rounded-lg p-4 border border-red-200">
+                <div className="flex items-center gap-2 mb-2">
+                  <TrendingDown className="w-4 h-4 text-red-600" />
+                  <span className="text-sm font-medium text-red-700">Total Expenses</span>
+                </div>
+                <p className="text-2xl font-bold text-red-600">
+                  {formatCurrency(actionModal.user.total_expenses)}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-lg p-6 text-white mb-6">
+              <div className="flex items-center gap-2 mb-2">
+                <DollarSign className="w-5 h-5" />
+                <span className="text-sm font-medium opacity-90">Net Amount</span>
+              </div>
+              <p className={`text-3xl font-bold ${
+                (actionModal.user.total_income - actionModal.user.total_expenses) >= 0 ? 'text-emerald-400' : 'text-red-400'
+              }`}>
+                {formatCurrency(actionModal.user.total_income - actionModal.user.total_expenses)}
+              </p>
+            </div>
+
+            <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+              <div className="flex items-center gap-2 mb-2">
+                <Bell className="w-4 h-4 text-blue-600" />
+                <span className="text-sm font-medium text-blue-700">Notifications</span>
+              </div>
+              <p className="text-lg font-semibold text-blue-900">
+                {actionModal.user.notification_count} notification(s) sent
+              </p>
+            </div>
+
+            <div className="flex gap-3 justify-end mt-6 pt-6 border-t border-slate-200">
+              <button
+                onClick={() => setActionModal({ type: null })}
+                className="px-5 py-2.5 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors font-medium"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => {
+                  setShowMessageModal(true);
+                }}
+                className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+              >
+                <Mail className="w-4 h-4" />
+                Send Message
+              </button>
             </div>
           </div>
         </div>

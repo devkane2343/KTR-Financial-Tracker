@@ -53,7 +53,12 @@ export interface UserWithDetails {
 export async function isUserAdmin(): Promise<boolean> {
   try {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return false;
+    console.log('🔍 Checking admin status for user:', user?.email, 'ID:', user?.id);
+    
+    if (!user) {
+      console.log('❌ No user found');
+      return false;
+    }
 
     const { data, error } = await supabase
       .from('admin_users')
@@ -62,13 +67,20 @@ export async function isUserAdmin(): Promise<boolean> {
       .single();
 
     if (error) {
-      console.error('Error checking admin status:', error);
+      console.error('❌ Error checking admin status:', error);
+      console.log('Error details:', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint
+      });
       return false;
     }
 
+    console.log('✅ Admin check result:', !!data, 'Data:', data);
     return !!data;
   } catch (err) {
-    console.error('Error in isUserAdmin:', err);
+    console.error('❌ Error in isUserAdmin:', err);
     return false;
   }
 }

@@ -81,16 +81,13 @@ CREATE TRIGGER trigger_user_accounts_updated_at
 -- ROW LEVEL SECURITY (RLS)
 -- =============================================================================
 
--- Admin Users: Only admins can view this table
+-- Admin Users: Authenticated users can view (needed to check admin status without recursion)
 ALTER TABLE admin_users ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Only admins can view admin_users" ON admin_users
-  FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM admin_users 
-      WHERE user_id = auth.uid()
-    )
-  );
+-- Allow authenticated users to read admin_users to check admin status
+-- This prevents infinite recursion when checking if user is admin
+CREATE POLICY "Authenticated users can view admin_users" ON admin_users
+  FOR SELECT USING (auth.role() = 'authenticated');
 
 -- User Accounts: Admins can view all, users can view their own
 ALTER TABLE user_accounts ENABLE ROW LEVEL SECURITY;
