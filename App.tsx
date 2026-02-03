@@ -352,8 +352,8 @@ const App: React.FC = () => {
       <main className="max-w-[90rem] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
         
         {/* Dashboard View */}
-        {activeTab === 'dashboard' && (
-          <div className="space-y-8 animate-in fade-in duration-500">
+        <div className={activeTab === 'dashboard' ? 'block space-y-8' : 'hidden'} aria-hidden={activeTab !== 'dashboard'}>
+          <div className="space-y-8">
             {/* Welcome Message - Shows on top for mobile */}
             <div className="lg:hidden">
               <div className="bg-gradient-to-br from-emerald-100 to-white rounded-xl p-6 text-slate-800 shadow-xl shadow-slate-200 relative overflow-hidden">
@@ -427,11 +427,11 @@ const App: React.FC = () => {
               </div>
             </div>
           </div>
-        )}
+        </div>
 
         {/* Income View */}
-        {activeTab === 'income' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-in slide-in-from-bottom-4 duration-500">
+        <div className={activeTab === 'income' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'income'}>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
              <div className="lg:col-span-3">
                 <IncomeForm 
                   onAdd={handleAddIncome} 
@@ -451,11 +451,11 @@ const App: React.FC = () => {
                 />
              </div>
           </div>
-        )}
+        </div>
 
         {/* Expenses View */}
-        {activeTab === 'expenses' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-in slide-in-from-bottom-4 duration-500">
+        <div className={activeTab === 'expenses' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'expenses'}>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <div className="lg:col-span-3">
                <ExpenseForm
                  onAdd={handleAddExpense}
@@ -482,26 +482,26 @@ const App: React.FC = () => {
                />
             </div>
           </div>
-        )}
+        </div>
 
         {/* Analytics View (lazy-loaded with recharts) */}
-        {activeTab === 'analytics' && (
+        <div className={activeTab === 'analytics' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'analytics'}>
           <Suspense fallback={<div className="flex items-center justify-center py-16"><span className="w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /></div>}>
             <AnalyticsView data={data} />
           </Suspense>
-        )}
+        </div>
 
         {/* Profile View */}
-        {activeTab === 'profile' && (
+        <div className={activeTab === 'profile' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'profile'}>
           <ProfilePage user={user} />
-        )}
+        </div>
 
         {/* Admin View */}
-        {activeTab === 'admin' && (
+        <div className={activeTab === 'admin' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'admin'}>
           <AdminGuard>
             <AdminDashboard />
           </AdminGuard>
-        )}
+        </div>
 
       </main>
 
