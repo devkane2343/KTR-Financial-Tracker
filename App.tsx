@@ -11,6 +11,7 @@ import { ProfilePage } from './components/ProfilePage';
 import { AdminDashboard } from './components/AdminDashboard';
 import { NotificationBar } from './components/NotificationBar';
 import { AdminGuard } from './components/AdminGuard';
+import { PrivacyNoticeModal } from './components/PrivacyNoticeModal';
 
 const AnalyticsView = lazy(() => import('./components/AnalyticsView').then((m) => ({ default: m.AnalyticsView })));
 import {
@@ -31,6 +32,7 @@ import { supabase } from './lib/supabase';
 import { saveFinancialDataToSupabase, loadFinancialDataFromSupabase } from './lib/supabaseSave';
 import { getProfilePictureUrl } from './lib/profilePicture';
 import { isUserAdmin } from './lib/adminUtils';
+import { usePrivacyNotice } from './hooks/usePrivacyNotice';
 
 const LOGO_URL = '/logo.png';
 
@@ -50,6 +52,8 @@ const App: React.FC = () => {
   const [saveSuccessCount, setSaveSuccessCount] = useState<{ income: number; expenses: number } | undefined>(undefined);
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+
+  const { shouldShow: showPrivacyNotice, handleAccept: handlePrivacyAccept } = usePrivacyNotice(user);
 
   const dataRef = useRef(data);
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -216,6 +220,9 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 pb-20 sm:pb-12">
+      {/* Privacy Notice Modal */}
+      <PrivacyNoticeModal isOpen={showPrivacyNotice} onAccept={handlePrivacyAccept} />
+      
       {/* Navigation Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
         <div className="max-w-[90rem] mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
