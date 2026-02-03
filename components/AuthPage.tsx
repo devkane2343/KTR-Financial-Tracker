@@ -65,7 +65,7 @@ export const AuthPage: React.FC = () => {
     <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="flex flex-col items-center mb-8">
-          <div className="bg-slate-900 p-1.5 rounded-full shadow-lg w-14 h-14 flex items-center justify-center mb-4">
+          <div className="border-4 border-slate-200 p-2 rounded-full shadow-lg w-24 h-24 flex items-center justify-center mb-4 bg-white">
             <img src={LOGO_URL} className="w-full h-full object-contain" alt="KTR Logo" />
           </div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">KTR Financial Tracker</h1>
