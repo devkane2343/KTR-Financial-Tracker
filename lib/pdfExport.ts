@@ -9,13 +9,14 @@ interface CategoryTotal {
   percentage: number;
 }
 
-// Custom currency formatter for Philippine Pesos
+// Custom currency formatter for Philippine Pesos with PHP symbol
 const formatCurrencyPHP = (amount: number): string => {
-  return new Intl.NumberFormat('en-PH', {
-    style: 'currency',
-    currency: 'PHP',
-    minimumFractionDigits: 2
-  }).format(amount);
+  const formatted = new Intl.NumberFormat('en-PH', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(Math.abs(amount));
+  const sign = amount < 0 ? '-' : '';
+  return `${sign}PHP ${formatted}`;
 };
 
 export const generateFinancialReportPDF = async (data: FinancialData, userName?: string) => {
@@ -92,13 +93,13 @@ export const generateFinancialReportPDF = async (data: FinancialData, userName?:
 
   // ===== HEADER =====
   doc.setFillColor(220, 38, 38); // Red-600
-  doc.rect(0, 0, pageWidth, 35, 'F');
+  doc.rect(0, 0, pageWidth, 40, 'F');
   
-  // Add logo to header if available
+  // Add logo to header if available - centered with title
   if (logoDataUrl) {
     try {
-      const logoSize = 22;
-      const logoX = pageWidth - margin - logoSize - 5;
+      const logoSize = 28;
+      const logoX = margin;
       const logoY = 6;
       doc.addImage(logoDataUrl, 'PNG', logoX, logoY, logoSize, logoSize);
     } catch (error) {
@@ -107,17 +108,23 @@ export const generateFinancialReportPDF = async (data: FinancialData, userName?:
   }
   
   doc.setTextColor(255, 255, 255);
-  doc.setFontSize(22);
+  doc.setFontSize(24);
   doc.setFont('helvetica', 'bold');
-  doc.text('KTR - Financial Tracker', margin, 15);
+  const titleX = logoDataUrl ? margin + 33 : margin;
+  doc.text('KTR Financial Tracker', titleX, 16);
   
-  doc.setFontSize(16);
+  doc.setFontSize(13);
   doc.setFont('helvetica', 'normal');
-  doc.text('Comprehensive Financial Report', margin, 25);
+  doc.text('Financial Report', titleX, 26);
+  
+  // Add currency indicator
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'italic');
+  doc.text('All amounts in Philippine Peso (PHP)', titleX, 33);
 
   // Reset text color
   doc.setTextColor(0, 0, 0);
-  yPos = 45;
+  yPos = 50;
 
   // ===== USER INFO & DATE RANGE =====
   doc.setFontSize(10);
@@ -140,64 +147,71 @@ export const generateFinancialReportPDF = async (data: FinancialData, userName?:
   doc.text('Executive Summary', margin, yPos);
   yPos += 8;
 
-  // Summary metrics in a box
-  doc.setDrawColor(200, 200, 200);
-  doc.setFillColor(248, 250, 252); // Slate-50
-  doc.roundedRect(margin, yPos, pageWidth - 2 * margin, 45, 2, 2, 'FD');
+  // Summary metrics in a clean box
+  doc.setDrawColor(220, 38, 38);
+  doc.setLineWidth(0.5);
+  doc.setFillColor(255, 255, 255);
+  doc.roundedRect(margin, yPos, pageWidth - 2 * margin, 50, 3, 3, 'FD');
 
   doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
-  doc.setTextColor(30, 30, 30);
+  doc.setTextColor(60, 60, 60);
   
-  const col1X = margin + 5;
-  const col2X = pageWidth / 2 + 5;
-  let boxY = yPos + 8;
+  const col1X = margin + 6;
+  const col2X = pageWidth / 2 + 6;
+  let boxY = yPos + 10;
 
   // Column 1
-  doc.text('Total Net Income (PHP):', col1X, boxY);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(16, 185, 129); // Emerald-600
-  doc.text(formatCurrencyPHP(totalNetIncome), col1X + 50, boxY);
-  boxY += 7;
-
+  doc.text('Total Net Income:', col1X, boxY);
+  doc.setFontSize(14);
   doc.setFont('helvetica', 'bold');
-  doc.setTextColor(30, 30, 30);
-  doc.text('Average Net Income (PHP):', col1X, boxY);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(79, 70, 229); // Indigo-600
-  doc.text(formatCurrencyPHP(averageNetIncome), col1X + 50, boxY);
-  boxY += 7;
+  doc.setTextColor(16, 185, 129); // Emerald-600
+  doc.text(formatCurrencyPHP(totalNetIncome), col1X, boxY + 6);
+  boxY += 15;
 
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(100, 100, 100);
-  doc.setFontSize(9);
-  doc.text(`Based on ${incomeCount} ${incomeCount === 1 ? 'paycheck' : 'paychecks'}`, col1X, boxY);
-
-  // Column 2
-  boxY = yPos + 8;
   doc.setFontSize(10);
   doc.setFont('helvetica', 'bold');
-  doc.setTextColor(30, 30, 30);
-  doc.text('Total Expenses (PHP):', col2X, boxY);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(245, 158, 11); // Amber-600
-  doc.text(formatCurrencyPHP(totalExpenses), col2X + 48, boxY);
-  boxY += 7;
-
+  doc.setTextColor(60, 60, 60);
+  doc.text('Average Net Income:', col1X, boxY);
+  doc.setFontSize(14);
   doc.setFont('helvetica', 'bold');
-  doc.setTextColor(30, 30, 30);
-  doc.text('Net Balance (PHP):', col2X, boxY);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(netBalance >= 0 ? 37 : 220, netBalance >= 0 ? 99 : 38, netBalance >= 0 ? 235 : 38);
-  doc.text(formatCurrencyPHP(netBalance), col2X + 48, boxY);
-  boxY += 7;
+  doc.setTextColor(79, 70, 229); // Indigo-600
+  doc.text(formatCurrencyPHP(averageNetIncome), col1X, boxY + 6);
+  boxY += 10;
 
   doc.setFont('helvetica', 'normal');
-  doc.setTextColor(100, 100, 100);
-  doc.setFontSize(9);
-  doc.text(`${data.expenses.length} ${data.expenses.length === 1 ? 'transaction' : 'transactions'}`, col2X, boxY);
+  doc.setTextColor(120, 120, 120);
+  doc.setFontSize(8);
+  doc.text(`Based on ${incomeCount} ${incomeCount === 1 ? 'paycheck' : 'paychecks'}`, col1X, boxY + 3);
 
-  yPos += 55;
+  // Column 2
+  boxY = yPos + 10;
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(60, 60, 60);
+  doc.text('Total Expenses:', col2X, boxY);
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(245, 158, 11); // Amber-600
+  doc.text(formatCurrencyPHP(totalExpenses), col2X, boxY + 6);
+  boxY += 15;
+
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(60, 60, 60);
+  doc.text('Net Balance:', col2X, boxY);
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(netBalance >= 0 ? 16 : 220, netBalance >= 0 ? 185 : 38, netBalance >= 0 ? 129 : 38);
+  doc.text(formatCurrencyPHP(netBalance), col2X, boxY + 6);
+  boxY += 10;
+
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(120, 120, 120);
+  doc.setFontSize(8);
+  doc.text(`${data.expenses.length} ${data.expenses.length === 1 ? 'transaction' : 'transactions'}`, col2X, boxY + 3);
+
+  yPos += 60;
 
   // ===== INCOME BREAKDOWN =====
   checkNewPage(40);
@@ -219,18 +233,30 @@ export const generateFinancialReportPDF = async (data: FinancialData, userName?:
 
     autoTable(doc, {
       startY: yPos,
-      head: [['Date', 'Gross Salary (PHP)', 'Total Deductions (PHP)', 'Net Income (PHP)']],
+      head: [['Date', 'Gross Salary', 'Total Deductions', 'Net Income']],
       body: incomeTableData,
-      theme: 'striped',
-      headStyles: { fillColor: [220, 38, 38], textColor: [255, 255, 255], fontStyle: 'bold' },
-      styles: { fontSize: 9, cellPadding: 3 },
-      columnStyles: {
-        0: { cellWidth: 45 },
-        1: { halign: 'right' },
-        2: { halign: 'right' },
-        3: { halign: 'right', fontStyle: 'bold' }
+      theme: 'grid',
+      headStyles: { 
+        fillColor: [220, 38, 38], 
+        textColor: [255, 255, 255], 
+        fontStyle: 'bold',
+        fontSize: 10,
+        halign: 'center'
       },
-      margin: { left: margin, right: margin }
+      styles: { 
+        fontSize: 9, 
+        cellPadding: 4,
+        lineColor: [220, 220, 220],
+        lineWidth: 0.1
+      },
+      columnStyles: {
+        0: { cellWidth: 40, halign: 'center' },
+        1: { halign: 'right', cellWidth: 45 },
+        2: { halign: 'right', cellWidth: 45 },
+        3: { halign: 'right', fontStyle: 'bold', cellWidth: 45, textColor: [16, 185, 129] }
+      },
+      margin: { left: margin, right: margin },
+      alternateRowStyles: { fillColor: [250, 250, 250] }
     });
 
     yPos = (doc as any).lastAutoTable.finalY + 10;
@@ -259,17 +285,29 @@ export const generateFinancialReportPDF = async (data: FinancialData, userName?:
 
     autoTable(doc, {
       startY: yPos,
-      head: [['Category', 'Total Amount (PHP)', '% of Total']],
+      head: [['Category', 'Total Amount', '% of Total']],
       body: categoryTableData,
-      theme: 'striped',
-      headStyles: { fillColor: [220, 38, 38], textColor: [255, 255, 255], fontStyle: 'bold' },
-      styles: { fontSize: 9, cellPadding: 3 },
+      theme: 'grid',
+      headStyles: { 
+        fillColor: [220, 38, 38], 
+        textColor: [255, 255, 255], 
+        fontStyle: 'bold',
+        fontSize: 10,
+        halign: 'center'
+      },
+      styles: { 
+        fontSize: 9, 
+        cellPadding: 4,
+        lineColor: [220, 220, 220],
+        lineWidth: 0.1
+      },
       columnStyles: {
         0: { cellWidth: 80 },
-        1: { halign: 'right', cellWidth: 50 },
-        2: { halign: 'center', cellWidth: 30 }
+        1: { halign: 'right', cellWidth: 55, fontStyle: 'bold', textColor: [245, 158, 11] },
+        2: { halign: 'center', cellWidth: 35 }
       },
-      margin: { left: margin, right: margin }
+      margin: { left: margin, right: margin },
+      alternateRowStyles: { fillColor: [250, 250, 250] }
     });
 
     yPos = (doc as any).lastAutoTable.finalY + 10;
@@ -301,18 +339,30 @@ export const generateFinancialReportPDF = async (data: FinancialData, userName?:
 
     autoTable(doc, {
       startY: yPos,
-      head: [['Date', 'Category', 'Description', 'Amount (PHP)']],
+      head: [['Date', 'Category', 'Description', 'Amount']],
       body: expenseTableData,
-      theme: 'striped',
-      headStyles: { fillColor: [220, 38, 38], textColor: [255, 255, 255], fontStyle: 'bold' },
-      styles: { fontSize: 8, cellPadding: 2.5 },
-      columnStyles: {
-        0: { cellWidth: 32 },
-        1: { cellWidth: 35 },
-        2: { cellWidth: 80 },
-        3: { halign: 'right', cellWidth: 30, fontStyle: 'bold' }
+      theme: 'grid',
+      headStyles: { 
+        fillColor: [220, 38, 38], 
+        textColor: [255, 255, 255], 
+        fontStyle: 'bold',
+        fontSize: 9,
+        halign: 'center'
       },
-      margin: { left: margin, right: margin }
+      styles: { 
+        fontSize: 8, 
+        cellPadding: 3,
+        lineColor: [220, 220, 220],
+        lineWidth: 0.1
+      },
+      columnStyles: {
+        0: { cellWidth: 30, halign: 'center' },
+        1: { cellWidth: 32 },
+        2: { cellWidth: 85 },
+        3: { halign: 'right', cellWidth: 30, fontStyle: 'bold', textColor: [220, 38, 38] }
+      },
+      margin: { left: margin, right: margin },
+      alternateRowStyles: { fillColor: [250, 250, 250] }
     });
 
     yPos = (doc as any).lastAutoTable.finalY + 10;
@@ -324,22 +374,37 @@ export const generateFinancialReportPDF = async (data: FinancialData, userName?:
     yPos += 15;
   }
 
-  // ===== FOOTER ON LAST PAGE =====
+  // ===== FOOTER ON ALL PAGES =====
   const pageCount = doc.getNumberOfPages();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
+    
+    // Add subtle line above footer
+    doc.setDrawColor(220, 220, 220);
+    doc.setLineWidth(0.5);
+    doc.line(margin, pageHeight - 15, pageWidth - margin, pageHeight - 15);
+    
     doc.setFontSize(8);
     doc.setTextColor(150, 150, 150);
     doc.text(
       `Page ${i} of ${pageCount}`,
       pageWidth / 2,
-      doc.internal.pageSize.getHeight() - 10,
+      pageHeight - 8,
       { align: 'center' }
     );
     doc.text(
-      'KTR - Financial Tracker | Confidential',
+      'KTR Financial Tracker | Confidential',
       margin,
-      doc.internal.pageSize.getHeight() - 10
+      pageHeight - 8
+    );
+    
+    // Currency note on right
+    doc.text(
+      'Currency: PHP',
+      pageWidth - margin - 30,
+      pageHeight - 8
     );
   }
 

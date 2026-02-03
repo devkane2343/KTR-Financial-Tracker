@@ -46,25 +46,44 @@ Sorted by date (most recent first)
 ## Features
 
 ### Design & Branding
-- **Professional Layout**: Clean, corporate-style design
-- **Brand Colors**: KTR Financial Tracker branding (Red header)
-- **Logo Integration**: KTR logo displayed prominently in the header beside the title
+- **Clean, Modern Layout**: Simplified professional design with enhanced readability
+- **Brand Colors**: KTR Financial Tracker red branding throughout
+- **Logo Integration**: KTR logo prominently displayed in the header (28x28px, left-aligned with title)
 - **Multi-page Support**: Automatically paginates for large datasets
-- **Page Numbers**: Footer with page numbers and confidential marking
+- **Enhanced Footer**: 
+  - Page numbers centered
+  - Confidential marking on left
+  - Currency indicator (PHP ₱) on right
+  - Subtle separator line above footer
 
 ### User Information
-- Generated timestamp
+- Generated timestamp with full date and time
 - User name (from profile)
 - Date range of data
+- Currency disclaimer in header
 
 ### Smart Formatting
-- **Currency**: All monetary values explicitly labeled and formatted in Philippine Pesos (PHP)
-  - Executive summary shows "(PHP)" labels
-  - All table headers clearly indicate "Amount (PHP)"
-  - Consistent PHP ₱ symbol throughout the document
+- **Philippine Peso (PHP) Currency**: 
+  - Consistent PHP currency display throughout
+  - Format: PHP #,###.## (e.g., PHP 25,000.00)
+  - Clear currency indicator in header: "All amounts in Philippine Peso (PHP)"
+  - Footer reminder: "Currency: PHP"
+  - Removed redundant "(PHP)" labels from table headers for cleaner look
+- **Enhanced Typography**:
+  - Larger, bold amounts in executive summary (14pt)
+  - Color-coded values for easy scanning
+  - Clear section headings
+- **Improved Tables**:
+  - Grid theme with subtle borders
+  - Alternating row colors for better readability
+  - Right-aligned amounts with appropriate colors
+  - Centered column headers
 - Date formatting in readable format
 - Automatic table pagination
-- Color-coded values (positive/negative balances)
+- Color-coded values:
+  - Green for net income
+  - Amber/Orange for expenses
+  - Green/Red for positive/negative balances
 
 ### Error Handling
 - Disabled when no data available
