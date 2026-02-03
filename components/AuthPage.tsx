@@ -55,7 +55,18 @@ export const AuthPage: React.FC = () => {
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      setMessage({ type: 'error', text: msg });
+      
+      // Provide user-friendly error messages
+      let displayMsg = msg;
+      if (msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('email rate')) {
+        displayMsg = 'Too many attempts. Please wait a few minutes and try again, or contact support if this persists.';
+      } else if (msg.toLowerCase().includes('invalid login')) {
+        displayMsg = 'Invalid email or password. Please try again.';
+      } else if (msg.toLowerCase().includes('email not confirmed')) {
+        displayMsg = 'Please check your email and confirm your account before signing in.';
+      }
+      
+      setMessage({ type: 'error', text: displayMsg });
     } finally {
       setLoading(false);
     }
