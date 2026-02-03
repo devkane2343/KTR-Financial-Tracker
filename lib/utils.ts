@@ -14,7 +14,7 @@ export const formatDateString = (dateStr: string): string => {
   if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
   const [y, m, d] = dateStr.split('-');
   const date = new Date(Number(y), Number(m) - 1, Number(d));
-  return date.toLocaleDateString();
+  return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 };
 
 export const formatCurrency = (amount: number): string => {

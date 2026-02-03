@@ -341,7 +341,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user }) => {
           </div>
           <div className="flex justify-between">
             <span className="text-slate-500">Account Created:</span>
-            <span className="text-slate-700">{new Date(user.created_at).toLocaleDateString()}</span>
+            <span className="text-slate-700">{new Date(user.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span>
           </div>
         </div>
       </div>
