@@ -45,3 +45,16 @@ This creates:
 2. Restart the dev server (`npm run dev`)
 
 Users sign in or sign up on the login page; their income and expenses are stored under their account and isolated by RLS.
+
+## 6. Deploy to Vercel (production auth)
+
+For auth to work on your deployed app (e.g. **https://ktr-financial-tracker.vercel.app/**), configure Supabase so confirmation emails and redirects use the production URL:
+
+1. In Supabase Dashboard go to **Authentication** → **URL Configuration**
+2. Set **Site URL** to your production URL, e.g. `https://ktr-financial-tracker.vercel.app`
+3. Under **Redirect URLs**, add:
+   - `https://ktr-financial-tracker.vercel.app/**`
+   - Keep `http://localhost:5173/**` (or your local URL) if you develop locally
+4. Save
+
+The app sends `emailRedirectTo: window.location.origin` on sign-up, so the confirmation link in the email goes to the same domain the user is on (Vercel when deployed). Supabase only allows redirects to URLs listed in **Redirect URLs**, so adding the Vercel URL is required.

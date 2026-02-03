@@ -7,6 +7,7 @@ import { IncomeList } from './components/IncomeList';
 import { ExpenseForm } from './components/ExpenseForm';
 import { ExpenseList } from './components/ExpenseList';
 import { AuthPage } from './components/AuthPage';
+import { ProfilePage } from './components/ProfilePage';
 
 const AnalyticsView = lazy(() => import('./components/AnalyticsView').then((m) => ({ default: m.AnalyticsView })));
 import {
@@ -18,10 +19,13 @@ import {
   Save,
   Check,
   AlertCircle,
-  LogOut
+  LogOut,
+  User as UserIcon,
+  ChevronDown
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import { saveFinancialDataToSupabase, loadFinancialDataFromSupabase } from './lib/supabaseSave';
+import { getProfilePictureUrl } from './lib/profilePicture';
 
 const LOGO_URL = '/logo.png';
 
@@ -39,9 +43,11 @@ const App: React.FC = () => {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const [saveError, setSaveError] = useState<string>('');
   const [saveSuccessCount, setSaveSuccessCount] = useState<{ income: number; expenses: number } | undefined>(undefined);
+  const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
 
   const dataRef = useRef(data);
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const profileDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     dataRef.current = data;
@@ -85,6 +91,17 @@ const App: React.FC = () => {
     return () => {
       if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
     };
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (profileDropdownRef.current && !profileDropdownRef.current.contains(event.target as Node)) {
+        setIsProfileDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   useEffect(() => {
@@ -247,16 +264,53 @@ const App: React.FC = () => {
                 {saveError}
               </span>
             )}
-            <button
-              onClick={() => supabase.auth.signOut()}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:text-red-600 hover:bg-slate-100 transition-all"
-              title="Sign out"
-            >
-              <LogOut className="w-4 h-4" />
-              <span className="hidden sm:inline">Sign out</span>
-            </button>
-            <div className="h-8 w-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden" title={user.email ?? undefined}>
-              <img src={LOGO_URL} className="w-6 h-6 opacity-50" alt="KTR" />
+            
+            {/* Profile Dropdown */}
+            <div className="relative" ref={profileDropdownRef}>
+              <button
+                onClick={() => setIsProfileDropdownOpen(!isProfileDropdownOpen)}
+                className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-100 transition-all"
+                title={user.email ?? undefined}
+              >
+                <div className="h-8 w-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden">
+                  {getProfilePictureUrl(user) ? (
+                    <img src={getProfilePictureUrl(user)!} className="w-full h-full object-cover" alt="Profile" />
+                  ) : (
+                    <img src={LOGO_URL} className="w-6 h-6 opacity-50" alt="KTR" />
+                  )}
+                </div>
+                <ChevronDown className={`w-4 h-4 text-slate-600 transition-transform ${isProfileDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {isProfileDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-slate-200 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <div className="px-4 py-2 border-b border-slate-200">
+                    <p className="text-sm font-semibold text-slate-900">
+                      {user?.user_metadata?.full_name || 'User'}
+                    </p>
+                    <p className="text-xs text-slate-500 truncate">{user.email}</p>
+                  </div>
+                  
+                  <button
+                    onClick={() => {
+                      setActiveTab('profile');
+                      setIsProfileDropdownOpen(false);
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                  >
+                    <UserIcon className="w-4 h-4" />
+                    Profile
+                  </button>
+                  
+                  <button
+                    onClick={() => supabase.auth.signOut()}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Logout
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -292,7 +346,11 @@ const App: React.FC = () => {
               <div className="lg:col-span-3 space-y-6">
                  <div className="bg-gradient-to-br from-emerald-100 to-white rounded-xl p-6 text-slate-800 shadow-xl shadow-slate-200 relative overflow-hidden">
                     <div className="relative z-10">
-                      <h3 className="text-lg font-bold mb-2">Welcome Mr. Kane</h3>
+                      <h3 className="text-lg font-bold mb-2">
+                        {user?.user_metadata?.full_name
+                          ? `Welcome, ${user.user_metadata.full_name}`
+                          : 'Welcome'}
+                      </h3>
                       <p className="text-slate-600 text-sm mb-4">Observe every flow of your currency with precision. Log your salary history to unlock full insights.</p>
                       <button 
                         onClick={() => setActiveTab('income')}
@@ -390,12 +448,17 @@ const App: React.FC = () => {
           </Suspense>
         )}
 
+        {/* Profile View */}
+        {activeTab === 'profile' && (
+          <ProfilePage user={user} />
+        )}
+
       </main>
 
       <footer className="max-w-[90rem] mx-auto px-4 sm:px-6 lg:px-8 py-6 border-t border-slate-200 text-center">
         <div className="flex items-center justify-center gap-2 mb-2">
            <img src={LOGO_URL} className="w-4 h-4 opacity-40" alt="Footer Logo" />
-           <p className="text-sm text-slate-500 font-medium">PesoWise Finance Tracker</p>
+           <p className="text-sm text-slate-500 font-medium">KTR - Finance Tracker</p>
         </div>
         <p className="text-xs text-slate-400">
            &bull; Secured with Supabase Auth &bull; Your data stays in your account &bull;
