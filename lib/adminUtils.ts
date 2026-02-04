@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { Portfolio } from '../types';
 
 export interface UserAccount {
   id: string;
@@ -417,18 +418,18 @@ export async function permanentlyDeleteUser(
 }
 
 /**
- * Get user notifications
+ * Get user notifications (only for the current user, not ones they sent)
  */
 export async function getUserNotifications(userId?: string): Promise<UserNotification[]> {
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
     let query = supabase
       .from('user_notifications')
       .select('*')
+      .eq('user_id', userId || user.id)
       .order('sent_at', { ascending: false });
-
-    if (userId) {
-      query = query.eq('user_id', userId);
-    }
 
     const { data, error } = await query;
 
@@ -492,5 +493,77 @@ export async function deleteNotification(
   } catch (err) {
     console.error('Error in deleteNotification:', err);
     return { success: false, error: String(err) };
+  }
+}
+
+/**
+ * Load portfolio for a specific user (admin only)
+ */
+export async function loadUserPortfolio(userId: string): Promise<Portfolio | null> {
+  try {
+    const { data, error } = await supabase
+      .from('portfolio')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    if (error) {
+      // If no portfolio exists yet, return null (not an error)
+      if (error.code === 'PGRST116') {
+        return null;
+      }
+      console.error('Error loading user portfolio:', error);
+      return null;
+    }
+
+    if (!data) {
+      return null;
+    }
+
+    // Convert snake_case to camelCase
+    const portfolio: Portfolio = {
+      id: data.id,
+      user_id: data.user_id,
+      company_name: data.company_name || '',
+      position: data.position || '',
+      rate_type: data.rate_type || 'hourly',
+      hourly_rate: parseFloat(data.hourly_rate || '0'),
+      monthly_rate: parseFloat(data.monthly_rate || '0'),
+      hours_per_day: parseFloat(data.hours_per_day || '8'),
+      dreams: data.dreams || '',
+      created_at: data.created_at,
+      updated_at: data.updated_at,
+    };
+
+    return portfolio;
+  } catch (err) {
+    console.error('Error in loadUserPortfolio:', err);
+    return null;
+  }
+}
+
+/**
+ * Get sent notifications with read status (admin only)
+ */
+export async function getSentNotificationsWithReadStatus(): Promise<UserNotification[]> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    const { data, error } = await supabase
+      .from('user_notifications')
+      .select('*')
+      .eq('sent_by', user.id)
+      .order('sent_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching sent notifications:', error);
+      return [];
+    }
+
+    return data || [];
+  } catch (err) {
+    console.error('Error in getSentNotificationsWithReadStatus:', err);
+    return [];
   }
 }

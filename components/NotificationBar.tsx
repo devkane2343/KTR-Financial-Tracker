@@ -18,6 +18,8 @@ export const NotificationBar: React.FC = () => {
   const loadNotifications = async () => {
     setLoading(true);
     const data = await getUserNotifications();
+    // Notifications are already filtered to only show ones where current user is the recipient
+    // So admins won't see notifications they sent, only ones they received
     setNotifications(data);
     setLoading(false);
   };

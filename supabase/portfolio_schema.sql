@@ -46,6 +46,15 @@ ALTER TABLE portfolio ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can manage own portfolio" ON portfolio
   FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
+-- Allow admins to view all portfolios (read-only)
+CREATE POLICY "Admins can view all portfolios" ON portfolio
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM admin_users
+      WHERE admin_users.user_id = auth.uid()
+    )
+  );
+
 -- =============================================================================
 -- USAGE NOTES
 -- =============================================================================

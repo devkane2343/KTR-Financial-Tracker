@@ -37,9 +37,14 @@ import {
   suspendUserAccount,
   reactivateUserAccount,
   deleteUserAccount,
+  loadUserPortfolio,
+  getSentNotificationsWithReadStatus,
   UserWithDetails,
   UserStats,
+  UserNotification,
 } from '../lib/adminUtils';
+import { Portfolio } from '../types';
+import { Briefcase, Target, CheckCircle2, Clock as ClockIcon } from 'lucide-react';
 
 type SortField = 'email' | 'created_at' | 'total_income' | 'total_expenses' | 'last_sign_in_at';
 type SortDirection = 'asc' | 'desc';
@@ -91,6 +96,11 @@ export const AdminDashboard: React.FC = () => {
   const [actionModal, setActionModal] = useState<ActionModal>({ type: null });
   const [actionReason, setActionReason] = useState('');
   const [openMenuUserId, setOpenMenuUserId] = useState<string | null>(null);
+  const [userPortfolio, setUserPortfolio] = useState<Portfolio | null>(null);
+  const [portfolioLoading, setPortfolioLoading] = useState(false);
+  const [showSentMessagesModal, setShowSentMessagesModal] = useState(false);
+  const [sentMessages, setSentMessages] = useState<any[]>([]);
+  const [sentMessagesLoading, setSentMessagesLoading] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -99,6 +109,38 @@ export const AdminDashboard: React.FC = () => {
   useEffect(() => {
     filterUsers();
   }, [users, searchTerm, statusFilter, sortField, sortDirection]);
+
+  useEffect(() => {
+    // Load portfolio when user details modal opens
+    if (actionModal.type === 'details' && actionModal.user) {
+      loadPortfolio(actionModal.user.id);
+    } else {
+      setUserPortfolio(null);
+    }
+  }, [actionModal]);
+
+  const loadPortfolio = async (userId: string) => {
+    setPortfolioLoading(true);
+    const portfolio = await loadUserPortfolio(userId);
+    setUserPortfolio(portfolio);
+    setPortfolioLoading(false);
+  };
+
+  const loadSentMessages = async () => {
+    setSentMessagesLoading(true);
+    const messages = await getSentNotificationsWithReadStatus();
+    // Enhance messages with user info
+    const enhancedMessages = messages.map(msg => {
+      const user = users.find(u => u.id === msg.user_id);
+      return {
+        ...msg,
+        recipient_name: user?.full_name || user?.email || 'Unknown User',
+        recipient_email: user?.email || 'N/A'
+      };
+    });
+    setSentMessages(enhancedMessages);
+    setSentMessagesLoading(false);
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -333,13 +375,23 @@ export const AdminDashboard: React.FC = () => {
           </div>
           <p className="text-sm text-slate-600 mt-1">Comprehensive user management and analytics</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => {
+              setShowSentMessagesModal(true);
+              loadSentMessages();
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors text-sm font-medium"
+          >
+            <MessageSquare className="w-4 h-4" />
+            <span className="hidden sm:inline">Sent Messages</span>
+          </button>
           <button
             onClick={exportToCSV}
             className="flex items-center gap-2 px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg transition-colors text-sm font-medium"
           >
             <Download className="w-4 h-4" />
-            Export CSV
+            <span className="hidden sm:inline">Export CSV</span>
           </button>
           <button
             onClick={loadData}
@@ -347,7 +399,7 @@ export const AdminDashboard: React.FC = () => {
             className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors disabled:opacity-50 text-sm font-medium"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
+            <span className="hidden sm:inline">Refresh</span>
           </button>
         </div>
       </div>
@@ -474,13 +526,128 @@ export const AdminDashboard: React.FC = () => {
             </p>
           </div>
           {filteredUsers.length > 0 && (
-            <span className="text-xs text-slate-500">
+            <span className="text-xs text-slate-500 hidden md:inline">
               Click column headers to sort
             </span>
           )}
         </div>
+
+        {/* Mobile Card View */}
+        <div className="md:hidden divide-y divide-slate-100">
+          {filteredUsers.map((user) => {
+            const netAmount = user.total_income - user.total_expenses;
+            return (
+              <div key={user.id} className="p-4 hover:bg-slate-50 transition-colors">
+                {/* Card Header */}
+                <div className="flex items-start gap-3 mb-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedUsers.has(user.id)}
+                    onChange={() => handleSelectUser(user.id)}
+                    className="w-4 h-4 mt-1 rounded border-slate-300 text-red-600 focus:ring-red-500"
+                  />
+                  <UserAvatar user={user} />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-slate-900 truncate">{user.full_name || 'Unnamed User'}</p>
+                    <p className="text-sm text-slate-500 truncate">{user.email}</p>
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold mt-1.5 ${
+                      user.status === 'active' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' :
+                      user.status === 'suspended' ? 'bg-amber-100 text-amber-700 border border-amber-200' :
+                      'bg-red-100 text-red-700 border border-red-200'
+                    }`}>
+                      {user.status === 'active' && <UserCheck className="w-3 h-3" />}
+                      {user.status === 'suspended' && <UserMinus className="w-3 h-3" />}
+                      {user.status === 'deleted' && <UserX className="w-3 h-3" />}
+                      {user.status.charAt(0).toUpperCase() + user.status.slice(1)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Financial Stats */}
+                <div className="grid grid-cols-3 gap-2 mb-3 pl-11">
+                  <div className="bg-emerald-50 rounded-lg p-2 border border-emerald-200">
+                    <div className="text-xs text-emerald-600 font-medium mb-0.5">Income</div>
+                    <div className="text-sm font-bold text-emerald-700">{formatCurrency(user.total_income)}</div>
+                  </div>
+                  <div className="bg-red-50 rounded-lg p-2 border border-red-200">
+                    <div className="text-xs text-red-600 font-medium mb-0.5">Expenses</div>
+                    <div className="text-sm font-bold text-red-700">{formatCurrency(user.total_expenses)}</div>
+                  </div>
+                  <div className={`rounded-lg p-2 border ${netAmount >= 0 ? 'bg-slate-50 border-slate-200' : 'bg-red-50 border-red-200'}`}>
+                    <div className="text-xs text-slate-600 font-medium mb-0.5">Net</div>
+                    <div className={`text-sm font-bold ${netAmount >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                      {formatCurrency(netAmount)}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Additional Info */}
+                <div className="flex items-center gap-4 text-xs text-slate-500 mb-3 pl-11">
+                  <div className="flex items-center gap-1">
+                    <Calendar className="w-3 h-3" />
+                    {new Date(user.created_at).toLocaleDateString()}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    {user.last_sign_in_at 
+                      ? new Date(user.last_sign_in_at).toLocaleDateString()
+                      : 'Never'
+                    }
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex items-center gap-2 pl-11">
+                  <button
+                    onClick={() => setActionModal({ type: 'details', user })}
+                    className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors text-sm font-medium"
+                  >
+                    <Eye className="w-4 h-4" />
+                    View
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActionModal({ type: 'message', user });
+                      setShowMessageModal(true);
+                    }}
+                    className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors text-sm font-medium"
+                  >
+                    <Mail className="w-4 h-4" />
+                    Message
+                  </button>
+                  {user.status === 'active' && (
+                    <button
+                      onClick={() => setActionModal({ type: 'suspend', user })}
+                      className="px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg transition-colors"
+                      title="Suspend"
+                    >
+                      <Ban className="w-4 h-4" />
+                    </button>
+                  )}
+                  {user.status === 'suspended' && (
+                    <button
+                      onClick={() => setActionModal({ type: 'reactivate', user })}
+                      className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg transition-colors"
+                      title="Reactivate"
+                    >
+                      <RotateCcw className="w-4 h-4" />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setActionModal({ type: 'delete', user })}
+                    className="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg transition-colors"
+                    title="Delete"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
         
-        <div className="overflow-x-auto">
+        {/* Desktop Table View */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
@@ -681,6 +848,7 @@ export const AdminDashboard: React.FC = () => {
           </table>
         </div>
 
+        {/* Empty State - Show on both mobile and desktop */}
         {filteredUsers.length === 0 && (
           <div className="text-center py-12 text-slate-500">
             <Users className="w-12 h-12 mx-auto mb-2 opacity-20" />
@@ -1084,6 +1252,116 @@ export const AdminDashboard: React.FC = () => {
               </p>
             </div>
 
+            {/* Portfolio Information */}
+            <div className="mt-6 pt-6 border-t border-slate-200">
+              <h4 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
+                <Briefcase className="w-5 h-5 text-slate-700" />
+                Portfolio Information
+              </h4>
+              
+              {portfolioLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                </div>
+              ) : userPortfolio && (userPortfolio.company_name || userPortfolio.position || userPortfolio.dreams) ? (
+                <div className="space-y-4">
+                  {/* Company and Position */}
+                  {(userPortfolio.company_name || userPortfolio.position) && (
+                    <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {userPortfolio.company_name && (
+                          <div>
+                            <div className="text-xs font-semibold text-slate-500 uppercase mb-1">Company</div>
+                            <div className="text-base font-bold text-slate-800">{userPortfolio.company_name}</div>
+                          </div>
+                        )}
+                        {userPortfolio.position && (
+                          <div>
+                            <div className="text-xs font-semibold text-slate-500 uppercase mb-1">Position</div>
+                            <div className="text-base font-bold text-slate-800">{userPortfolio.position}</div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Rate Information */}
+                  {(userPortfolio.hourly_rate > 0 || userPortfolio.monthly_rate > 0) && (
+                    <div className="bg-emerald-50 rounded-lg p-4 border border-emerald-200">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="text-xs font-semibold text-emerald-700 uppercase">Compensation</div>
+                        <div className="text-xs text-slate-600 bg-white px-2 py-1 rounded-full border border-emerald-200">
+                          {userPortfolio.hours_per_day}h/day
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        {userPortfolio.rate_type === 'monthly' && userPortfolio.monthly_rate > 0 && (
+                          <>
+                            <div>
+                              <div className="text-xs text-slate-500 mb-1">Monthly Rate</div>
+                              <div className="text-lg font-bold text-emerald-600">
+                                ₱{userPortfolio.monthly_rate.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-slate-500 mb-1">Daily Rate</div>
+                              <div className="text-lg font-bold text-slate-700">
+                                ₱{(userPortfolio.monthly_rate / 22.5).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-slate-500 mb-1">Hourly Rate</div>
+                              <div className="text-lg font-bold text-slate-700">
+                                ₱{(userPortfolio.monthly_rate / 22.5 / userPortfolio.hours_per_day).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </div>
+                            </div>
+                          </>
+                        )}
+                        {userPortfolio.rate_type === 'hourly' && userPortfolio.hourly_rate > 0 && (
+                          <>
+                            <div>
+                              <div className="text-xs text-slate-500 mb-1">Hourly Rate</div>
+                              <div className="text-lg font-bold text-emerald-600">
+                                ₱{userPortfolio.hourly_rate.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-slate-500 mb-1">Daily Rate</div>
+                              <div className="text-lg font-bold text-slate-700">
+                                ₱{(userPortfolio.hourly_rate * userPortfolio.hours_per_day).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-xs text-slate-500 mb-1">Monthly Estimate</div>
+                              <div className="text-lg font-bold text-slate-700">
+                                ₱{(userPortfolio.hourly_rate * userPortfolio.hours_per_day * 22.5).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Dreams/Goals */}
+                  {userPortfolio.dreams && (
+                    <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Target className="w-4 h-4 text-purple-600" />
+                        <div className="text-xs font-semibold text-purple-700 uppercase">5-Year Vision</div>
+                      </div>
+                      <p className="text-sm text-slate-700 whitespace-pre-wrap">{userPortfolio.dreams}</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="bg-slate-50 rounded-lg p-6 text-center border border-slate-200">
+                  <Briefcase className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                  <p className="text-sm text-slate-500">No portfolio information available</p>
+                </div>
+              )}
+            </div>
+
             <div className="flex gap-3 justify-end mt-6 pt-6 border-t border-slate-200">
               <button
                 onClick={() => setActionModal({ type: null })}
@@ -1099,6 +1377,120 @@ export const AdminDashboard: React.FC = () => {
               >
                 <Mail className="w-4 h-4" />
                 Send Message
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sent Messages Modal */}
+      {showSentMessagesModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col">
+            <div className="flex items-center justify-between p-6 border-b border-slate-200">
+              <div>
+                <h3 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+                  <MessageSquare className="w-6 h-6 text-blue-600" />
+                  Sent Messages
+                </h3>
+                <p className="text-sm text-slate-600 mt-1">Track delivery and read status of your messages</p>
+              </div>
+              <button
+                onClick={() => setShowSentMessagesModal(false)}
+                className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6">
+              {sentMessagesLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                </div>
+              ) : sentMessages.length === 0 ? (
+                <div className="text-center py-12 text-slate-500">
+                  <MessageSquare className="w-16 h-16 mx-auto mb-3 opacity-20" />
+                  <p className="font-medium">No messages sent yet</p>
+                  <p className="text-sm mt-1">Messages you send to users will appear here</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {sentMessages.map((message) => (
+                    <div
+                      key={message.id}
+                      className="bg-slate-50 rounded-lg p-4 border border-slate-200 hover:border-slate-300 transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-4 mb-3">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <h4 className="font-bold text-slate-900">{message.title}</h4>
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${
+                              message.type === 'info' ? 'bg-blue-100 text-blue-700' :
+                              message.type === 'success' ? 'bg-emerald-100 text-emerald-700' :
+                              message.type === 'warning' ? 'bg-amber-100 text-amber-700' :
+                              'bg-red-100 text-red-700'
+                            }`}>
+                              {message.type}
+                            </span>
+                          </div>
+                          <p className="text-sm text-slate-600 mb-2">{message.message}</p>
+                          <div className="flex items-center gap-3 text-xs text-slate-500">
+                            <span className="font-medium">To: {message.recipient_name}</span>
+                            <span>•</span>
+                            <span>{message.recipient_email}</span>
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-end gap-2 shrink-0">
+                          {message.is_read ? (
+                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-full text-xs font-semibold">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              Read
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-200 text-slate-600 rounded-full text-xs font-semibold">
+                              <ClockIcon className="w-3.5 h-3.5" />
+                              Unread
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between pt-3 border-t border-slate-200">
+                        <div className="text-xs text-slate-500">
+                          <span className="font-medium">Sent:</span> {new Date(message.sent_at).toLocaleString(undefined, {
+                            dateStyle: 'medium',
+                            timeStyle: 'short'
+                          })}
+                        </div>
+                        {message.read_at && (
+                          <div className="text-xs text-emerald-600 font-medium">
+                            <span>Read:</span> {new Date(message.read_at).toLocaleString(undefined, {
+                              dateStyle: 'medium',
+                              timeStyle: 'short'
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-between items-center p-6 border-t border-slate-200 bg-slate-50">
+              <div className="text-sm text-slate-600">
+                {sentMessages.length > 0 && (
+                  <>
+                    <span className="font-semibold">{sentMessages.filter(m => m.is_read).length}</span> read, {' '}
+                    <span className="font-semibold">{sentMessages.filter(m => !m.is_read).length}</span> unread
+                  </>
+                )}
+              </div>
+              <button
+                onClick={() => setShowSentMessagesModal(false)}
+                className="px-5 py-2.5 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors font-medium"
+              >
+                Close
               </button>
             </div>
           </div>
