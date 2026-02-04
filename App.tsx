@@ -8,6 +8,7 @@ import { ExpenseForm } from './components/ExpenseForm';
 import { ExpenseList } from './components/ExpenseList';
 import { AuthPage } from './components/AuthPage';
 import { ProfilePage } from './components/ProfilePage';
+import { PortfolioCard } from './components/PortfolioCard';
 import { AdminDashboard } from './components/AdminDashboard';
 import { NotificationBar } from './components/NotificationBar';
 import { AdminGuard } from './components/AdminGuard';
@@ -26,7 +27,8 @@ import {
   LogOut,
   User as UserIcon,
   ChevronDown,
-  Shield
+  Shield,
+  Briefcase
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import { saveFinancialDataToSupabase, loadFinancialDataFromSupabase } from './lib/supabaseSave';
@@ -52,6 +54,7 @@ const App: React.FC = () => {
   const [saveSuccessCount, setSaveSuccessCount] = useState<{ income: number; expenses: number } | undefined>(undefined);
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [portfolioRefreshTrigger, setPortfolioRefreshTrigger] = useState(0);
 
   const { shouldShow: showPrivacyNotice, handleAccept: handlePrivacyAccept } = usePrivacyNotice(user);
 
@@ -215,6 +218,7 @@ const App: React.FC = () => {
     { id: 'income', label: 'Income', icon: <History className="w-4 h-4" /> },
     { id: 'expenses', label: 'Expenses', icon: <ReceiptText className="w-4 h-4" /> },
     { id: 'analytics', label: 'Analytics', icon: <ChartIcon className="w-4 h-4" /> },
+    { id: 'portfolio', label: 'Portfolio', icon: <Briefcase className="w-4 h-4" /> },
     ...(isAdmin ? [{ id: 'admin', label: 'Admin', icon: <Shield className="w-4 h-4" /> }] : []),
   ];
 
@@ -498,9 +502,22 @@ const App: React.FC = () => {
           </Suspense>
         </div>
 
-        {/* Profile View */}
+        {/* Portfolio View - Display/Showcase */}
+        <div className={activeTab === 'portfolio' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'portfolio'}>
+          <div className="max-w-4xl mx-auto">
+            <PortfolioCard 
+              onEdit={() => setActiveTab('profile')} 
+              refreshTrigger={portfolioRefreshTrigger}
+            />
+          </div>
+        </div>
+
+        {/* Profile View - Settings & Editor */}
         <div className={activeTab === 'profile' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'profile'}>
-          <ProfilePage user={user} />
+          <ProfilePage 
+            user={user} 
+            onPortfolioSaved={() => setPortfolioRefreshTrigger(prev => prev + 1)}
+          />
         </div>
 
         {/* Admin View */}

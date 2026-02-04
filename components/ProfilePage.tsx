@@ -2,15 +2,18 @@ import React, { useState, useEffect, useRef } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { uploadProfilePicture, deleteProfilePicture, getProfilePictureUrl } from '../lib/profilePicture';
-import { User as UserIcon, Mail, Lock, Save, Loader2, CheckCircle, AlertCircle, Camera, Trash2, Upload } from 'lucide-react';
+import { loadPortfolio, savePortfolio } from '../lib/portfolioUtils';
+import { Portfolio } from '../types';
+import { User as UserIcon, Mail, Lock, Save, Loader2, CheckCircle, AlertCircle, Camera, Trash2, Upload, Briefcase, DollarSign, Target } from 'lucide-react';
 
 const LOGO_URL = '/logo.png';
 
 interface ProfilePageProps {
   user: User;
+  onPortfolioSaved?: () => void;
 }
 
-export const ProfilePage: React.FC<ProfilePageProps> = ({ user }) => {
+export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onPortfolioSaved }) => {
   const [fullName, setFullName] = useState(user?.user_metadata?.full_name || '');
   const [email, setEmail] = useState(user?.email || '');
   const [loading, setLoading] = useState(false);
@@ -20,11 +23,35 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user }) => {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Portfolio state
+  const [portfolio, setPortfolio] = useState<Portfolio>({
+    company_name: '',
+    position: '',
+    rate_type: 'hourly',
+    hourly_rate: 0,
+    monthly_rate: 0,
+    hours_per_day: 8,
+    dreams: '',
+  });
+  const [portfolioLoading, setPortfolioLoading] = useState(false);
+  const [portfolioMessage, setPortfolioMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
+
   useEffect(() => {
     setFullName(user?.user_metadata?.full_name || '');
     setEmail(user?.email || '');
     setAvatarUrl(getProfilePictureUrl(user));
   }, [user]);
+
+  // Load portfolio data
+  useEffect(() => {
+    const fetchPortfolio = async () => {
+      const result = await loadPortfolio();
+      if (result.ok && result.data) {
+        setPortfolio(result.data);
+      }
+    };
+    fetchPortfolio();
+  }, []);
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -133,6 +160,68 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user }) => {
       setMessage({ type: 'error', text: msg });
     } finally {
       setUploadingAvatar(false);
+    }
+  };
+
+  const handleRateTypeChange = (type: 'hourly' | 'monthly') => {
+    setPortfolio(prev => ({ ...prev, rate_type: type }));
+  };
+
+  const handleRateChange = (value: string) => {
+    const numValue = parseFloat(value) || 0;
+    const hoursPerDay = portfolio.hours_per_day || 8;
+    if (portfolio.rate_type === 'hourly') {
+      setPortfolio(prev => ({ 
+        ...prev, 
+        hourly_rate: numValue,
+        monthly_rate: numValue * hoursPerDay * 22.5
+      }));
+    } else {
+      setPortfolio(prev => ({ 
+        ...prev, 
+        monthly_rate: numValue,
+        hourly_rate: numValue / 22.5 / hoursPerDay
+      }));
+    }
+  };
+
+  const handleHoursPerDayChange = (value: string) => {
+    const numValue = parseFloat(value) || 8;
+    setPortfolio(prev => {
+      const newPortfolio = { ...prev, hours_per_day: numValue };
+      // Recalculate the opposite rate with new hours
+      if (prev.rate_type === 'hourly' && prev.hourly_rate > 0) {
+        newPortfolio.monthly_rate = prev.hourly_rate * numValue * 22.5;
+      } else if (prev.rate_type === 'monthly' && prev.monthly_rate > 0) {
+        newPortfolio.hourly_rate = prev.monthly_rate / 22.5 / numValue;
+      }
+      return newPortfolio;
+    });
+  };
+
+  const handleSavePortfolio = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPortfolioMessage(null);
+    setPortfolioLoading(true);
+
+    try {
+      const result = await savePortfolio(portfolio);
+      
+      if (result.ok) {
+        setPortfolioMessage({ type: 'success', text: 'Portfolio saved successfully!' });
+        setTimeout(() => setPortfolioMessage(null), 3000);
+        // Notify parent component that portfolio was saved
+        if (onPortfolioSaved) {
+          onPortfolioSaved();
+        }
+      } else {
+        setPortfolioMessage({ type: 'error', text: result.error });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setPortfolioMessage({ type: 'error', text: msg });
+    } finally {
+      setPortfolioLoading(false);
     }
   };
 
@@ -329,6 +418,241 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user }) => {
           <p className="text-xs text-slate-500 mt-3 text-center">
             You&apos;ll receive an email with a link to securely reset your password.
           </p>
+        </div>
+      </div>
+
+      {/* Portfolio & Career Section */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
+        <div className="bg-gradient-to-r from-blue-600 to-blue-700 p-6 text-white relative overflow-hidden">
+          <div className="relative z-10 flex items-center gap-4">
+            <div className="h-12 w-12 rounded-full bg-white/20 border-2 border-white flex items-center justify-center backdrop-blur-sm">
+              <Briefcase className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-2xl font-bold">Portfolio & Career</h2>
+              <p className="text-blue-100 text-sm">Your professional information</p>
+            </div>
+          </div>
+          <img 
+            src={LOGO_URL} 
+            className="absolute -right-8 -bottom-8 w-48 h-48 opacity-10 rotate-12 pointer-events-none" 
+            alt="Watermark" 
+          />
+        </div>
+
+        <div className="p-6 space-y-6">
+          {portfolioMessage && (
+            <div
+              className={`px-4 py-3 rounded-lg text-sm flex items-start gap-2 ${
+                portfolioMessage.type === 'error' 
+                  ? 'bg-red-50 text-red-700 border border-red-200' 
+                  : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+              }`}
+            >
+              {portfolioMessage.type === 'error' ? (
+                <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+              ) : (
+                <CheckCircle className="w-5 h-5 shrink-0 mt-0.5" />
+              )}
+              <span>{portfolioMessage.text}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSavePortfolio} className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label htmlFor="company-name" className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
+                  <Briefcase className="w-4 h-4" />
+                  Company Name
+                </label>
+                <input
+                  id="company-name"
+                  type="text"
+                  value={portfolio.company_name}
+                  onChange={(e) => setPortfolio(prev => ({ ...prev, company_name: e.target.value }))}
+                  placeholder="Enter company name"
+                  className="w-full px-4 py-3 rounded-lg border border-slate-300 bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="position" className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
+                  <UserIcon className="w-4 h-4" />
+                  Position
+                </label>
+                <input
+                  id="position"
+                  type="text"
+                  value={portfolio.position}
+                  onChange={(e) => setPortfolio(prev => ({ ...prev, position: e.target.value }))}
+                  placeholder="Enter your position"
+                  className="w-full px-4 py-3 rounded-lg border border-slate-300 bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="md:col-span-2">
+                <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
+                  <DollarSign className="w-4 h-4" />
+                  Rate Type
+                </label>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => handleRateTypeChange('hourly')}
+                    className={`flex-1 px-4 py-3 rounded-lg border-2 font-medium transition-all ${
+                      portfolio.rate_type === 'hourly'
+                        ? 'border-blue-600 bg-blue-50 text-blue-700'
+                        : 'border-slate-300 bg-white text-slate-700 hover:border-blue-300'
+                    }`}
+                  >
+                    Hourly Rate
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRateTypeChange('monthly')}
+                    className={`flex-1 px-4 py-3 rounded-lg border-2 font-medium transition-all ${
+                      portfolio.rate_type === 'monthly'
+                        ? 'border-blue-600 bg-blue-50 text-blue-700'
+                        : 'border-slate-300 bg-white text-slate-700 hover:border-blue-300'
+                    }`}
+                  >
+                    Monthly Rate
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="hours-per-day" className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
+                  Hours Per Day
+                </label>
+                <input
+                  id="hours-per-day"
+                  type="number"
+                  step="0.5"
+                  min="1"
+                  max="24"
+                  value={portfolio.hours_per_day}
+                  onChange={(e) => handleHoursPerDayChange(e.target.value)}
+                  className="w-full px-4 py-3 rounded-lg border-2 border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                />
+                <p className="text-xs text-slate-500 mt-1">Default: 8 hours</p>
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="rate-amount" className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
+                <DollarSign className="w-4 h-4" />
+                {portfolio.rate_type === 'hourly' ? 'Hourly Rate' : 'Monthly Rate'}
+              </label>
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-medium">₱</span>
+                <input
+                  id="rate-amount"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={portfolio.rate_type === 'hourly' ? portfolio.hourly_rate : portfolio.monthly_rate}
+                  onChange={(e) => handleRateChange(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full pl-10 pr-4 py-3 rounded-lg border border-slate-300 bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                />
+              </div>
+              {portfolio.rate_type === 'monthly' && portfolio.monthly_rate > 0 && (
+                <p className="text-xs text-slate-500 mt-1.5">
+                  Daily rate: ₱{(portfolio.monthly_rate / 22.5).toFixed(2)} • 
+                  Hourly rate: ₱{(portfolio.monthly_rate / 22.5 / portfolio.hours_per_day).toFixed(2)} 
+                  ({portfolio.hours_per_day}h/day)
+                </p>
+              )}
+              {portfolio.rate_type === 'hourly' && portfolio.hourly_rate > 0 && (
+                <p className="text-xs text-slate-500 mt-1.5">
+                  Daily: ₱{(portfolio.hourly_rate * portfolio.hours_per_day).toFixed(2)} • 
+                  Monthly: ₱{(portfolio.hourly_rate * portfolio.hours_per_day * 22.5).toFixed(2)} 
+                  ({portfolio.hours_per_day}h/day)
+                </p>
+              )}
+            </div>
+
+            <button
+              type="submit"
+              disabled={portfolioLoading}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors shadow-lg shadow-blue-900/20"
+            >
+              {portfolioLoading ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="w-5 h-5" />
+                  Save Portfolio
+                </>
+              )}
+            </button>
+          </form>
+        </div>
+      </div>
+
+      {/* Dreams & Goals Section */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
+        <div className="bg-gradient-to-r from-purple-600 to-purple-700 p-6 text-white relative overflow-hidden">
+          <div className="relative z-10 flex items-center gap-4">
+            <div className="h-12 w-12 rounded-full bg-white/20 border-2 border-white flex items-center justify-center backdrop-blur-sm">
+              <Target className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-2xl font-bold">Your Dreams</h2>
+              <p className="text-purple-100 text-sm">Where do you see yourself in 5 years?</p>
+            </div>
+          </div>
+          <img 
+            src={LOGO_URL} 
+            className="absolute -right-8 -bottom-8 w-48 h-48 opacity-10 rotate-12 pointer-events-none" 
+            alt="Watermark" 
+          />
+        </div>
+
+        <div className="p-6">
+          <form onSubmit={handleSavePortfolio}>
+            <div>
+              <label htmlFor="dreams" className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
+                <Target className="w-4 h-4" />
+                5-Year Goals & Dreams
+              </label>
+              <textarea
+                id="dreams"
+                value={portfolio.dreams}
+                onChange={(e) => setPortfolio(prev => ({ ...prev, dreams: e.target.value }))}
+                placeholder="Describe your goals, aspirations, and where you want to be in 5 years..."
+                rows={6}
+                className="w-full px-4 py-3 rounded-lg border border-slate-300 bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all resize-none"
+              />
+              <p className="text-xs text-slate-500 mt-1.5">
+                Write about your career aspirations, personal goals, skills you want to develop, or anything you dream of achieving.
+              </p>
+            </div>
+
+            <button
+              type="submit"
+              disabled={portfolioLoading}
+              className="w-full mt-4 flex items-center justify-center gap-2 py-3 rounded-lg bg-purple-600 text-white font-semibold hover:bg-purple-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors shadow-lg shadow-purple-900/20"
+            >
+              {portfolioLoading ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="w-5 h-5" />
+                  Save Dreams
+                </>
+              )}
+            </button>
+          </form>
         </div>
       </div>
 
