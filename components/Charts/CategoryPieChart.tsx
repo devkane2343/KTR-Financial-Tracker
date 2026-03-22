@@ -4,7 +4,7 @@ import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend } from 'recha
 import { Expense } from '../../types';
 import { Card } from '../UI/Card';
 import { COLORS } from '../../constants';
-import { formatCurrency } from '../../lib/utils';
+import { formatCurrency, isSavingsCategory } from '../../lib/utils';
 
 interface CategoryPieChartProps {
   expenses: Expense[];
@@ -15,10 +15,12 @@ export const CategoryPieChart: React.FC<CategoryPieChartProps> = ({ expenses }) 
     const categoryTotals: { [key: string]: number } = {};
     const categoryCounts: { [key: string]: number } = {};
     
-    expenses.forEach(exp => {
-      categoryTotals[exp.category] = (categoryTotals[exp.category] || 0) + exp.amount;
-      categoryCounts[exp.category] = (categoryCounts[exp.category] || 0) + 1;
-    });
+    expenses
+      .filter(exp => !isSavingsCategory(exp.category))
+      .forEach(exp => {
+        categoryTotals[exp.category] = (categoryTotals[exp.category] || 0) + exp.amount;
+        categoryCounts[exp.category] = (categoryCounts[exp.category] || 0) + 1;
+      });
 
     const totalAmount = Object.values(categoryTotals).reduce((sum, val) => sum + val, 0);
     

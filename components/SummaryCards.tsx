@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { FinancialData, Category } from '../types';
-import { formatCurrency, getNetIncome, getDeductionsForEntry } from '../lib/utils';
+import { formatCurrency, getNetIncome, getDeductionsForEntry, isSavingsCategory } from '../lib/utils';
 import { TrendingUp, Wallet, PiggyBank, Receipt, Banknote, CreditCard, Info } from 'lucide-react';
 
 interface SummaryCardsProps {
@@ -15,7 +15,9 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ data }) => {
   const lifetimeEarnings = incomeHistory.reduce((sum, inc) => sum + (inc.weeklySalary || 0), 0);
   const totalNetIncome = incomeHistory.reduce((sum, inc) => sum + getNetIncome(inc), 0);
   const totalDeductions = incomeHistory.reduce((sum, inc) => sum + getDeductionsForEntry(inc), 0);
-  const totalExpenses = expenses.reduce((sum, exp) => sum + exp.amount, 0);
+  const totalExpenses = expenses
+    .filter(exp => !isSavingsCategory(exp.category))
+    .reduce((sum, exp) => sum + exp.amount, 0);
   
   // Total Savings = Emergency Fund + General Savings from salary deductions + savings expenses
   const savingsFromIncome = incomeHistory.reduce(
@@ -28,7 +30,49 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ data }) => {
       e.category === Category.GeneralSavings
     )
     .reduce((sum, e) => sum + e.amount, 0);
-  const totalSavings = savingsFromIncome + savingsFromExpenses;
+  const grossSavings = savingsFromIncome + savingsFromExpenses;
+
+  // Calculate total savings used to cover monthly deficits
+  const monthsSet = new Set<string>();
+  incomeHistory.forEach(inc => {
+    const [y, m] = inc.date.split('-').map(Number);
+    monthsSet.add(`${y}-${String(m).padStart(2, '0')}`);
+  });
+  expenses.forEach(exp => {
+    const [y, m] = exp.date.split('-').map(Number);
+    monthsSet.add(`${y}-${String(m).padStart(2, '0')}`);
+  });
+
+  let totalSavingsUsed = 0;
+  Array.from(monthsSet).forEach(monthKey => {
+    const monthIncome = incomeHistory.filter(inc => {
+      const [y, m] = inc.date.split('-').map(Number);
+      return `${y}-${String(m).padStart(2, '0')}` === monthKey;
+    });
+    const monthExpenses = expenses.filter(exp => {
+      const [y, m] = exp.date.split('-').map(Number);
+      return `${y}-${String(m).padStart(2, '0')}` === monthKey;
+    });
+
+    const monthNet = monthIncome.reduce((sum, inc) => sum + getNetIncome(inc), 0);
+    const monthExp = monthExpenses
+      .filter(exp => !isSavingsCategory(exp.category))
+      .reduce((sum, exp) => sum + exp.amount, 0);
+    const monthSavingsFromIncome = monthIncome.reduce(
+      (sum, inc) => sum + (inc.emergencyFund || 0) + (inc.generalSavings || 0), 0
+    );
+    const monthSavingsFromExpenses = monthExpenses
+      .filter(exp => isSavingsCategory(exp.category))
+      .reduce((sum, exp) => sum + exp.amount, 0);
+    const monthSavings = monthSavingsFromIncome + monthSavingsFromExpenses;
+
+    const rawBalance = monthNet - monthExp;
+    if (rawBalance < 0) {
+      totalSavingsUsed += Math.min(Math.abs(rawBalance), monthSavings);
+    }
+  });
+
+  const totalSavings = grossSavings - totalSavingsUsed;
 
   const currentBalance = totalNetIncome - totalExpenses;
 
@@ -57,8 +101,12 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ data }) => {
       icon: <PiggyBank className="w-5 h-5" />,
       textColor: 'text-emerald-600',
       bgColor: 'bg-emerald-50',
-      formula: 'Savings from Income + Savings Expenses',
-      details: `${formatCurrency(savingsFromIncome)} + ${formatCurrency(savingsFromExpenses)} = ${formatCurrency(totalSavings)}\n\nIncludes: Emergency Fund & General Savings from both income deductions and expense entries`
+      formula: totalSavingsUsed > 0
+        ? '(Savings from Income + Savings Expenses) - Savings Used'
+        : 'Savings from Income + Savings Expenses',
+      details: totalSavingsUsed > 0
+        ? `Gross Savings: ${formatCurrency(savingsFromIncome)} + ${formatCurrency(savingsFromExpenses)} = ${formatCurrency(grossSavings)}\nSavings Used (deficit coverage): -${formatCurrency(totalSavingsUsed)}\nRemaining Savings: ${formatCurrency(totalSavings)}`
+        : `${formatCurrency(savingsFromIncome)} + ${formatCurrency(savingsFromExpenses)} = ${formatCurrency(totalSavings)}\n\nIncludes: Emergency Fund & General Savings from both income deductions and expense entries`
     },
     {
       label: 'Expenses',
@@ -66,8 +114,8 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ data }) => {
       icon: <CreditCard className="w-5 h-5" />,
       textColor: 'text-orange-600',
       bgColor: 'bg-orange-50',
-      formula: 'Sum of all Expense Amounts',
-      details: `∑ All Expenses = ${formatCurrency(totalExpenses)}`
+      formula: 'Sum of all Expenses (excludes EF & General Savings)',
+      details: `∑ Expenses (excl. Savings) = ${formatCurrency(totalExpenses)}\n\nEmergency Fund & General Savings are tracked under Total Savings`
     },
     {
       label: 'Total Net Income',

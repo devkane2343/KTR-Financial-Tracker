@@ -3,7 +3,7 @@ import React, { useMemo, useState } from 'react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { FinancialData } from '../../types';
 import { Card } from '../UI/Card';
-import { formatCurrency, getNetIncome } from '../../lib/utils';
+import { formatCurrency, getNetIncome, splitIncomeByMonth, isSavingsCategory } from '../../lib/utils';
 
 export type NetIncomeViewMode = 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'yearly';
 
@@ -23,7 +23,8 @@ export const NetIncomeTrendChart: React.FC<NetIncomeTrendChartProps> = ({ data }
   const [viewMode, setViewMode] = useState<NetIncomeViewMode>('weekly');
 
   const chartData = useMemo(() => {
-    const { incomeHistory, expenses } = data;
+    const { incomeHistory } = data;
+    const expenses = data.expenses.filter(exp => !isSavingsCategory(exp.category));
 
     // Find the earliest date from all transactions
     let earliestDate: Date | null = null;
@@ -300,11 +301,13 @@ export const NetIncomeTrendChart: React.FC<NetIncomeTrendChartProps> = ({ data }
       expenseByMonth[key] = { amount: 0, count: 0 };
     });
     incomeHistory.forEach(inc => {
-      const key = inc.date.slice(0, 7);
-      if (incomeByMonth.hasOwnProperty(key)) {
-        incomeByMonth[key].amount += getNetIncome(inc);
-        incomeByMonth[key].count += 1;
-      }
+      const slices = splitIncomeByMonth(inc);
+      slices.forEach(slice => {
+        if (incomeByMonth.hasOwnProperty(slice.monthKey)) {
+          incomeByMonth[slice.monthKey].amount += slice.netIncome;
+          incomeByMonth[slice.monthKey].count += slice.ratio;
+        }
+      });
     });
     expenses.forEach(exp => {
       const key = exp.date.slice(0, 7);

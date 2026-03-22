@@ -3,7 +3,7 @@ import React, { useMemo, useState } from 'react';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { Expense } from '../../types';
 import { Card } from '../UI/Card';
-import { formatCurrency } from '../../lib/utils';
+import { formatCurrency, isSavingsCategory } from '../../lib/utils';
 
 export type SpendingViewMode = 'daily' | 'weekly' | 'monthly';
 
@@ -21,10 +21,13 @@ export const SpendingTrendChart: React.FC<SpendingTrendChartProps> = ({ expenses
   const [viewMode, setViewMode] = useState<SpendingViewMode>('daily');
 
   const chartData = useMemo(() => {
+    // Filter out savings categories (EF & General Savings) from spending
+    const actualExpenses = expenses.filter(exp => !isSavingsCategory(exp.category));
+
     // Find the earliest expense date
     let earliestDate: Date | null = null;
-    
-    expenses.forEach(exp => {
+
+    actualExpenses.forEach(exp => {
       const [y, m, d] = exp.date.split('-').map(Number);
       const expDate = new Date(y, m - 1, d);
       if (!earliestDate || expDate < earliestDate) {
@@ -56,7 +59,7 @@ export const SpendingTrendChart: React.FC<SpendingTrendChartProps> = ({ expenses
         };
       }
       
-      expenses.forEach(exp => {
+      actualExpenses.forEach(exp => {
         if (dailyData.hasOwnProperty(exp.date)) {
           dailyData[exp.date].amount += exp.amount;
           dailyData[exp.date].count += 1;
@@ -105,7 +108,7 @@ export const SpendingTrendChart: React.FC<SpendingTrendChartProps> = ({ expenses
       
       const weeklyData: { [key: string]: { amount: number; count: number } } = {};
       weekBuckets.forEach(({ key }) => { weeklyData[key] = { amount: 0, count: 0 }; });
-      expenses.forEach(exp => {
+      actualExpenses.forEach(exp => {
         const [y, m, d] = exp.date.split('-').map(Number);
         const expDate = new Date(y, m - 1, d);
         const bucket = weekBuckets.find(
@@ -150,7 +153,7 @@ export const SpendingTrendChart: React.FC<SpendingTrendChartProps> = ({ expenses
     
     const monthlyData: { [key: string]: { amount: number; count: number } } = {};
     monthBuckets.forEach(({ key }) => { monthlyData[key] = { amount: 0, count: 0 }; });
-    expenses.forEach(exp => {
+    actualExpenses.forEach(exp => {
       const key = exp.date.slice(0, 7);
       if (monthlyData.hasOwnProperty(key)) {
         monthlyData[key].amount += exp.amount;

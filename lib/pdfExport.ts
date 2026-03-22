@@ -1,7 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { FinancialData, IncomeEntry, Expense, Category } from '../types';
-import { getNetIncome, formatDateString, getDeductionsForEntry } from './utils';
+import { getNetIncome, formatDateString, getDeductionsForEntry, isSavingsCategory } from './utils';
 
 interface CategoryTotal {
   category: string;
@@ -53,7 +53,9 @@ export const generateFinancialReportPDF = async (data: FinancialData, userName?:
 
   // Calculate all metrics
   const totalNetIncome = data.incomeHistory.reduce((sum, inc) => sum + getNetIncome(inc), 0);
-  const totalExpenses = data.expenses.reduce((sum, exp) => sum + exp.amount, 0);
+  const totalExpenses = data.expenses
+    .filter(exp => !isSavingsCategory(exp.category))
+    .reduce((sum, exp) => sum + exp.amount, 0);
   const netBalance = totalNetIncome - totalExpenses;
   const incomeCount = data.incomeHistory.length || 1;
   const averageNetIncome = totalNetIncome / incomeCount;
@@ -79,9 +81,11 @@ export const generateFinancialReportPDF = async (data: FinancialData, userName?:
 
   // Calculate category totals
   const categoryMap = new Map<string, number>();
-  data.expenses.forEach(exp => {
-    categoryMap.set(exp.category, (categoryMap.get(exp.category) || 0) + exp.amount);
-  });
+  data.expenses
+    .filter(exp => !isSavingsCategory(exp.category))
+    .forEach(exp => {
+      categoryMap.set(exp.category, (categoryMap.get(exp.category) || 0) + exp.amount);
+    });
 
   const categoryTotals: CategoryTotal[] = Array.from(categoryMap.entries())
     .map(([category, amount]) => ({

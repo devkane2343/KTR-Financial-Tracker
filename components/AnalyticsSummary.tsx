@@ -1,7 +1,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { FinancialData } from '../types';
-import { formatCurrency, getNetIncome } from '../lib/utils';
+import { formatCurrency, isSavingsCategory, getMonthlyIncomeTotals } from '../lib/utils';
 import { TrendingUp, Wallet, CreditCard, BarChart3, Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface AnalyticsSummaryProps {
@@ -10,7 +10,7 @@ interface AnalyticsSummaryProps {
 
 export const AnalyticsSummary: React.FC<AnalyticsSummaryProps> = ({ data }) => {
   const [selectedMonthIndex, setSelectedMonthIndex] = useState(0);
-  const { dateRange, monthlyGrossIncome, monthlyNetIncome, monthlyExpenses, monthlyNetBalance, monthPeriod, sortedMonths, incomeCountForMonth, expenseCountForMonth } = useMemo(() => {
+  const { dateRange, monthlyGrossIncome, monthlyNetIncome, monthlyExpenses, monthlyNetBalance, monthlySavings, savingsUsed, monthPeriod, sortedMonths, incomeCountForMonth, expenseCountForMonth } = useMemo(() => {
     // Calculate overall date range
     const allDates: Date[] = [];
     data.incomeHistory.forEach(inc => {
@@ -40,67 +40,78 @@ export const AnalyticsSummary: React.FC<AnalyticsSummaryProps> = ({ data }) => {
     let monthlyNetIncome = 0;
     let monthlyExpenses = 0;
     let monthlyNetBalance = 0;
+    let monthlySavings = 0;
+    let savingsUsed = 0;
     let incomeCountForMonth = 0;
     let expenseCountForMonth = 0;
     let sortedMonths: string[] = [];
-    
-    // Get all unique months from income data
-    const monthsSet = new Set<string>();
-    data.incomeHistory.forEach(inc => {
-      const [y, m] = inc.date.split('-').map(Number);
-      const monthKey = `${y}-${String(m).padStart(2, '0')}`;
-      monthsSet.add(monthKey);
-    });
+
+    // Split income entries proportionally across months (handles pay periods crossing month boundaries)
+    const monthlyIncomeMap = getMonthlyIncomeTotals(data.incomeHistory);
+
+    // Collect all months from both income (split-aware) and expenses
+    const monthsSet = new Set<string>(monthlyIncomeMap.keys());
     data.expenses.forEach(exp => {
       const [y, m] = exp.date.split('-').map(Number);
-      const monthKey = `${y}-${String(m).padStart(2, '0')}`;
-      monthsSet.add(monthKey);
+      monthsSet.add(`${y}-${String(m).padStart(2, '0')}`);
     });
 
     if (monthsSet.size > 0) {
-      // Get sorted months (oldest to newest)
       sortedMonths = Array.from(monthsSet).sort();
-      
-      // Get the selected month (counting from the most recent, so 0 = most recent)
+
       const monthIndex = Math.min(selectedMonthIndex, sortedMonths.length - 1);
       const selectedMonth = sortedMonths[sortedMonths.length - 1 - monthIndex];
-      
-      // Filter data for selected month
-      const selectedMonthIncome = data.incomeHistory.filter(inc => {
-        const [y, m] = inc.date.split('-').map(Number);
-        const monthKey = `${y}-${String(m).padStart(2, '0')}`;
-        return monthKey === selectedMonth;
-      });
-      
+
+      // Get proportionally-split income totals for the selected month
+      const incomeTotals = monthlyIncomeMap.get(selectedMonth);
+
       const selectedMonthExpenses = data.expenses.filter(exp => {
         const [y, m] = exp.date.split('-').map(Number);
-        const monthKey = `${y}-${String(m).padStart(2, '0')}`;
-        return monthKey === selectedMonth;
+        return `${y}-${String(m).padStart(2, '0')}` === selectedMonth;
       });
-      
-      // Calculate metrics for selected month
-      monthlyGrossIncome = selectedMonthIncome.reduce((sum, inc) => sum + (inc.weeklySalary || 0), 0);
-      monthlyNetIncome = selectedMonthIncome.reduce((sum, inc) => sum + getNetIncome(inc), 0);
-      monthlyExpenses = selectedMonthExpenses.reduce((sum, exp) => sum + exp.amount, 0);
-      monthlyNetBalance = monthlyNetIncome - monthlyExpenses;
-      incomeCountForMonth = selectedMonthIncome.length;
-      expenseCountForMonth = selectedMonthExpenses.length;
-      
-      // Format as "January 1, 2026 - January 31, 2026"
+
+      // Use split income totals
+      monthlyGrossIncome = incomeTotals?.grossIncome ?? 0;
+      monthlyNetIncome = incomeTotals?.netIncome ?? 0;
+      incomeCountForMonth = Math.round(incomeTotals?.entryCount ?? 0);
+
+      monthlyExpenses = selectedMonthExpenses
+        .filter(exp => !isSavingsCategory(exp.category))
+        .reduce((sum, exp) => sum + exp.amount, 0);
+
+      // Calculate monthly savings (from split income deductions + savings expense entries)
+      const savingsFromIncome = (incomeTotals?.emergencyFund ?? 0) + (incomeTotals?.generalSavings ?? 0);
+      const savingsFromExpenses = selectedMonthExpenses
+        .filter(exp => isSavingsCategory(exp.category))
+        .reduce((sum, exp) => sum + exp.amount, 0);
+      monthlySavings = savingsFromIncome + savingsFromExpenses;
+
+      // If deficit, use savings to cover it
+      const rawBalance = monthlyNetIncome - monthlyExpenses;
+      if (rawBalance < 0) {
+        savingsUsed = Math.min(Math.abs(rawBalance), monthlySavings);
+        monthlyNetBalance = rawBalance + savingsUsed;
+      } else {
+        savingsUsed = 0;
+        monthlyNetBalance = rawBalance;
+      }
+
+      expenseCountForMonth = selectedMonthExpenses.filter(exp => !isSavingsCategory(exp.category)).length;
+
       const [y, m] = selectedMonth.split('-').map(Number);
       const firstDay = new Date(y, m - 1, 1);
       const lastDay = new Date(y, m, 0);
-      
-      const formatFullDate = (d: Date) => d.toLocaleDateString('en-US', { 
-        month: 'long', 
-        day: 'numeric', 
-        year: 'numeric' 
+
+      const formatFullDate = (d: Date) => d.toLocaleDateString('en-US', {
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric'
       });
-      
+
       monthPeriod = `${formatFullDate(firstDay)} - ${formatFullDate(lastDay)}`;
     }
 
-    return { dateRange, monthlyGrossIncome, monthlyNetIncome, monthlyExpenses, monthlyNetBalance, monthPeriod, sortedMonths, incomeCountForMonth, expenseCountForMonth };
+    return { dateRange, monthlyGrossIncome, monthlyNetIncome, monthlyExpenses, monthlyNetBalance, monthlySavings, savingsUsed, monthPeriod, sortedMonths, incomeCountForMonth, expenseCountForMonth };
   }, [data, selectedMonthIndex]);
 
   const averageNetIncomeForMonth = incomeCountForMonth > 0 ? monthlyNetIncome / incomeCountForMonth : 0;
@@ -136,7 +147,9 @@ export const AnalyticsSummary: React.FC<AnalyticsSummaryProps> = ({ data }) => {
       icon: <Wallet className="w-5 h-5" />,
       textColor: monthlyNetBalance >= 0 ? 'text-blue-600' : 'text-red-600',
       bgColor: monthlyNetBalance >= 0 ? 'bg-blue-50' : 'bg-red-50',
-      sublabel: monthlyNetBalance >= 0 ? 'Available' : 'Deficit'
+      sublabel: savingsUsed > 0
+        ? `${formatCurrency(savingsUsed)} savings used`
+        : monthlyNetBalance >= 0 ? 'Available' : 'Deficit'
     }
   ];
 

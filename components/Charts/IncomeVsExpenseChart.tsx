@@ -3,17 +3,26 @@ import React, { useMemo } from 'react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell } from 'recharts';
 import { FinancialData } from '../../types';
 import { Card } from '../UI/Card';
-import { getNetIncome, getDeductionsForEntry, formatCurrency } from '../../lib/utils';
+import { getNetIncome, getDeductionsForEntry, formatCurrency, isSavingsCategory } from '../../lib/utils';
 
 interface IncomeVsExpenseChartProps {
   data: FinancialData;
 }
 
 export const IncomeVsExpenseChart: React.FC<IncomeVsExpenseChartProps> = ({ data }) => {
-  const { totalNet, totalExp, totalDeductions, utilization, dateRange } = useMemo(() => {
+  const { totalNet, totalExp, totalDeductions, totalSavings, utilization, dateRange } = useMemo(() => {
     const totalNet = data.incomeHistory.reduce((sum, inc) => sum + getNetIncome(inc), 0);
-    const totalExp = data.expenses.reduce((sum, exp) => sum + exp.amount, 0);
+    const totalExp = data.expenses
+      .filter(exp => !isSavingsCategory(exp.category))
+      .reduce((sum, exp) => sum + exp.amount, 0);
     const totalDeductions = data.incomeHistory.reduce((sum, inc) => sum + getDeductionsForEntry(inc), 0);
+    const savingsFromIncome = data.incomeHistory.reduce(
+      (sum, inc) => sum + (inc.emergencyFund || 0) + (inc.generalSavings || 0), 0
+    );
+    const savingsFromExpenses = data.expenses
+      .filter(exp => isSavingsCategory(exp.category))
+      .reduce((sum, exp) => sum + exp.amount, 0);
+    const totalSavings = savingsFromIncome + savingsFromExpenses;
     const utilization = totalNet > 0 ? (totalExp / totalNet) * 100 : 0;
 
     // Calculate date range
@@ -40,12 +49,13 @@ export const IncomeVsExpenseChart: React.FC<IncomeVsExpenseChartProps> = ({ data
       }
     }
 
-    return { totalNet, totalExp, totalDeductions, utilization, dateRange };
+    return { totalNet, totalExp, totalDeductions, totalSavings, utilization, dateRange };
   }, [data]);
 
   const chartData = [
     { name: 'Lifetime Net Income', amount: totalNet, color: '#10b981' },
     { name: 'Mandatory Deductions', amount: totalDeductions, color: '#ef4444' },
+    { name: 'Lifetime Savings', amount: totalSavings, color: '#6366f1' },
     { name: 'Lifetime Expenses', amount: totalExp, color: '#f59e0b' }
   ];
 
