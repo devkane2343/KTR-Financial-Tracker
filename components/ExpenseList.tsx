@@ -1,9 +1,9 @@
 
 import React, { useState } from 'react';
-import { Expense, Category } from '../types';
+import { Expense } from '../types';
 import { CATEGORIES } from '../constants';
-import { formatCurrency, formatDateString } from '../lib/utils';
-import { Trash2, Search, Filter, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Pencil } from 'lucide-react';
+import { formatCurrency, formatDateString, isSavingsCategory } from '../lib/utils';
+import { Trash2, Search, ChevronLeft, ChevronRight, Pencil } from 'lucide-react';
 
 interface ExpenseListProps {
   expenses: Expense[];
@@ -11,15 +11,31 @@ interface ExpenseListProps {
   onEdit?: (expense: Expense) => void;
 }
 
+// Editorial palette per category — keeps the list visually rhythmic
+const CATEGORY_TONE: Record<string, string> = {
+  'Emergency Fund':   'bg-jade-50 text-jade-700',
+  'General Savings':  'bg-jade-50 text-jade-700',
+  'Life Insurance':   'bg-jade-50 text-jade-700',
+  'Savings':          'bg-jade-50 text-jade-700',
+  'Food':             'bg-gold-50 text-gold-700',
+  'Transportation':   'bg-ink/5 text-ink-soft',
+  'Utilities':        'bg-paper-deep text-ink-soft',
+  'Entertainment':    'bg-coral-50 text-coral-500',
+  'Bills':            'bg-gold-50 text-gold-700',
+  'Shopping':         'bg-coral-50 text-coral-500',
+  'Health':           'bg-jade-50 text-jade-700',
+  'Others':           'bg-ink/5 text-ink-soft',
+};
+
 export const ExpenseList: React.FC<ExpenseListProps> = ({ expenses, onDelete, onEdit }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState<string>('All');
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 6;
+  const itemsPerPage = 8;
 
   const filteredExpenses = expenses
     .filter(exp => {
-      const matchesSearch = exp.description.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      const matchesSearch = exp.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
                             exp.category.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesCategory = filterCategory === 'All' || exp.category === filterCategory;
       return matchesSearch && matchesCategory;
@@ -29,182 +45,123 @@ export const ExpenseList: React.FC<ExpenseListProps> = ({ expenses, onDelete, on
   const totalPages = Math.ceil(filteredExpenses.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const paginatedExpenses = filteredExpenses.slice(startIndex, startIndex + itemsPerPage);
+  const totalAmount = filteredExpenses
+    .filter(e => !isSavingsCategory(e.category))
+    .reduce((sum, e) => sum + e.amount, 0);
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden h-full flex flex-col">
-      <div className="p-6 border-b border-slate-100 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-bold text-slate-800">Expense History</h2>
-          <span className="text-sm font-medium px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
-            {filteredExpenses.length} records
-          </span>
+    <div className="bg-paper rounded-2xl shadow-paper overflow-hidden h-full flex flex-col">
+      {/* Editorial header */}
+      <div className="p-6 border-b border-rule space-y-4">
+        <div className="flex items-end justify-between flex-wrap gap-2">
+          <div>
+            <p className="eyebrow mb-1">Section · Outflow</p>
+            <h2 className="font-display text-3xl text-ink leading-tight">Expense History</h2>
+          </div>
+          <div className="text-right">
+            <p className="num text-lg text-ink font-medium">{formatCurrency(totalAmount)}</p>
+            <p className="eyebrow mt-0.5">{filteredExpenses.length} {filteredExpenses.length === 1 ? 'record' : 'records'}</p>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div className="relative sm:col-span-2">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-whisper" />
             <input
               type="text"
-              placeholder="Search descriptions..."
+              placeholder="Search by description…"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+              className="w-full pl-9 pr-4 py-2.5 text-sm bg-paper-soft/60 border border-rule rounded-lg focus:border-ink focus:ring-0 outline-none text-ink placeholder:text-ink-whisper transition-colors"
             />
           </div>
-          <div className="relative">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <select
-              value={filterCategory}
-              onChange={(e) => setFilterCategory(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none appearance-none bg-white"
-            >
-              <option value="All">All Categories</option>
-              {CATEGORIES.map(cat => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
-            </select>
-          </div>
+          <select
+            value={filterCategory}
+            onChange={(e) => setFilterCategory(e.target.value)}
+            className="px-3 py-2.5 text-sm bg-paper-soft/60 border border-rule rounded-lg focus:border-ink focus:ring-0 outline-none text-ink transition-colors"
+          >
+            <option value="All">All categories</option>
+            {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+          </select>
         </div>
       </div>
 
       <div className="flex-1 overflow-auto min-h-[400px]">
-        {paginatedExpenses.length > 0 ? (
-          <>
-            {/* Desktop Table View */}
-            <table className="hidden md:table w-full min-w-[720px] text-left table-fixed">
-              <thead>
-                <tr className="bg-slate-50 text-slate-500 text-xs font-semibold uppercase tracking-wider">
-                  <th className="px-6 py-3 w-[180px]">Date</th>
-                  <th className="px-6 py-3 w-[110px]">Category</th>
-                  <th className="px-6 py-3">Description</th>
-                  <th className="px-6 py-3 text-right w-[120px]">Amount</th>
-                  <th className="px-6 py-3 text-center w-[90px]">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {paginatedExpenses.map((exp) => (
-                  <tr key={exp.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
-                      <div className="flex items-center gap-2">
-                        <CalendarIcon className="w-3.5 h-3.5 text-slate-400" />
-                        {formatDateString(exp.date)}
+        {paginatedExpenses.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20">
+            <p className="font-display text-2xl text-ink-whisper italic mb-2">Nothing recorded.</p>
+            <p className="text-sm text-ink-muted">Try a different filter, or log a new expense.</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-rule">
+            {paginatedExpenses.map((exp, idx) => {
+              const tone = CATEGORY_TONE[exp.category] ?? 'bg-ink/5 text-ink-soft';
+              return (
+                <div
+                  key={exp.id}
+                  className="px-6 py-4 hover:bg-paper-soft/40 transition-colors stagger animate-fade-up"
+                  style={{ animationDelay: `${Math.min(idx, 8) * 30}ms` }}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline gap-2 flex-wrap mb-1">
+                        <span className="font-display text-base text-ink">{formatDateString(exp.date)}</span>
+                        <span className={`text-[9px] font-medium px-2 py-0.5 rounded-full uppercase tracking-[0.18em] ${tone}`}>
+                          {exp.category}
+                        </span>
                       </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-50 text-emerald-700">
-                        {exp.category}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-800 font-medium truncate" title={exp.description || undefined}>
-                      {exp.description || <span className="text-slate-400 italic">No description</span>}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-bold text-slate-900">
-                      {formatCurrency(exp.amount)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      <div className="flex items-center justify-center gap-1">
+                      <p className="text-sm text-ink-muted leading-snug truncate" title={exp.description || undefined}>
+                        {exp.description || <span className="italic text-ink-whisper">No description</span>}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <p className="num text-lg font-medium text-ink">{formatCurrency(exp.amount)}</p>
+                      <div className="flex items-center gap-1 ml-2">
                         {onEdit && (
                           <button
                             onClick={() => onEdit(exp)}
-                            className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-all"
-                            title="Edit expense"
+                            className="p-1.5 text-ink-whisper hover:text-ink hover:bg-ink/5 rounded-full transition-all"
+                            title="Edit"
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
                         )}
                         <button
                           onClick={() => onDelete(exp.id)}
-                          className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-all"
-                          title="Delete expense"
+                          className="p-1.5 text-ink-whisper hover:text-coral-500 hover:bg-coral-50 rounded-full transition-all"
+                          title="Delete"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            {/* Mobile Card View */}
-            <div className="md:hidden space-y-3 p-4">
-              {paginatedExpenses.map((exp) => (
-                <div 
-                  key={exp.id} 
-                  className="bg-white border border-slate-200 rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow"
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 text-xs text-slate-500 mb-1">
-                        <CalendarIcon className="w-3.5 h-3.5" />
-                        {formatDateString(exp.date)}
-                      </div>
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-50 text-emerald-700">
-                        {exp.category}
-                      </span>
                     </div>
-                    <div className="text-right">
-                      <div className="text-lg font-bold text-slate-900">
-                        {formatCurrency(exp.amount)}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="mb-3">
-                    <p className="text-sm text-slate-800 font-medium">
-                      {exp.description || <span className="text-slate-400 italic">No description</span>}
-                    </p>
-                  </div>
-                  
-                  <div className="flex items-center gap-2 pt-3 border-t border-slate-100">
-                    {onEdit && (
-                      <button
-                        onClick={() => onEdit(exp)}
-                        className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded transition-colors"
-                      >
-                        <Pencil className="w-4 h-4" />
-                        Edit
-                      </button>
-                    )}
-                    <button
-                      onClick={() => onDelete(exp.id)}
-                      className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      Delete
-                    </button>
                   </div>
                 </div>
-              ))}
-            </div>
-          </>
-        ) : (
-          <div className="flex flex-col items-center justify-center py-20 text-slate-400">
-            <Search className="w-12 h-12 mb-4 opacity-20" />
-            <p className="text-lg">No expenses found</p>
-            <p className="text-sm">Try adjusting your filters or search terms</p>
+              );
+            })}
           </div>
         )}
       </div>
 
       {totalPages > 1 && (
-        <div className="p-4 border-t border-slate-100 flex items-center justify-between">
-          <p className="text-sm text-slate-500">
-            Showing <span className="font-medium">{startIndex + 1}</span> to <span className="font-medium">{Math.min(startIndex + itemsPerPage, filteredExpenses.length)}</span> of <span className="font-medium">{filteredExpenses.length}</span> results
+        <div className="px-6 py-4 border-t border-rule flex items-center justify-between">
+          <p className="text-xs text-ink-muted font-mono">
+            {startIndex + 1}–{Math.min(startIndex + itemsPerPage, filteredExpenses.length)} of {filteredExpenses.length}
           </p>
           <div className="flex items-center gap-1">
             <button
               onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
               disabled={currentPage === 1}
-              className="p-2 border border-slate-200 rounded-md disabled:opacity-30 hover:bg-slate-50 transition-colors"
+              className="p-2 rounded-full hover:bg-ink/5 disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <span className="px-3 text-sm font-medium text-slate-600">{currentPage} / {totalPages}</span>
+            <span className="num text-xs px-3 text-ink-muted">{currentPage} / {totalPages}</span>
             <button
               onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
               disabled={currentPage === totalPages}
-              className="p-2 border border-slate-200 rounded-md disabled:opacity-30 hover:bg-slate-50 transition-colors"
+              className="p-2 rounded-full hover:bg-ink/5 disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
             >
               <ChevronRight className="w-4 h-4" />
             </button>

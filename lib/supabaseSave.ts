@@ -1,6 +1,6 @@
 import { supabase } from './supabase';
 import { isValidUUID } from './utils';
-import type { FinancialData, IncomeEntry, Expense } from '../types';
+import type { FinancialData, IncomeEntry, Expense, Bill, BillPayment, BillCategory } from '../types';
 
 function toIncomeRow(entry: IncomeEntry, id: string, userId: string) {
   return {
@@ -14,6 +14,68 @@ function toIncomeRow(entry: IncomeEntry, id: string, userId: string) {
     vul: entry.vul,
     emergency_fund: entry.emergencyFund ?? 0,
     general_savings: entry.generalSavings ?? 0,
+    paid_bills: entry.paidBills ?? [],
+  };
+}
+
+function toBillRow(bill: Bill, id: string, userId: string) {
+  return {
+    id,
+    user_id: userId,
+    name: bill.name,
+    amount: bill.amount,
+    category: bill.category,
+    due_date: bill.dueDate,
+    total_payments: bill.totalPayments ?? null,
+    active: bill.active,
+  };
+}
+
+function fromBillRow(row: {
+  id: string;
+  name: string;
+  amount: number;
+  category?: string | null;
+  due_date?: string | null;
+  total_payments?: number | null;
+  active?: boolean | null;
+  paid_date?: string | null;
+}): Bill {
+  return {
+    id: row.id,
+    name: row.name,
+    amount: Number(row.amount),
+    category: ((row.category as BillCategory) ?? 'Other') as BillCategory,
+    dueDate: row.due_date ?? row.paid_date ?? new Date().toISOString().slice(0, 10),
+    totalPayments: row.total_payments ?? undefined,
+    active: row.active ?? true,
+  };
+}
+
+function toBillPaymentRow(payment: BillPayment, id: string, userId: string) {
+  return {
+    id,
+    user_id: userId,
+    bill_id: payment.billId,
+    due_date: payment.dueDate,
+    paid_date: payment.paidDate,
+    amount: payment.amount,
+  };
+}
+
+function fromBillPaymentRow(row: {
+  id: string;
+  bill_id: string;
+  due_date: string;
+  paid_date: string;
+  amount: number;
+}): BillPayment {
+  return {
+    id: row.id,
+    billId: row.bill_id,
+    dueDate: row.due_date,
+    paidDate: row.paid_date,
+    amount: Number(row.amount),
   };
 }
 
@@ -38,6 +100,7 @@ function fromIncomeRow(row: {
   vul: number;
   emergency_fund?: number;
   general_savings?: number;
+  paid_bills?: Array<{ billId: string; name: string; amount: number }>;
 }): IncomeEntry {
   return {
     id: row.id,
@@ -49,6 +112,7 @@ function fromIncomeRow(row: {
     vul: Number(row.vul),
     emergencyFund: Number(row.emergency_fund ?? 0),
     generalSavings: Number(row.general_savings ?? 0),
+    paidBills: Array.isArray(row.paid_bills) && row.paid_bills.length > 0 ? row.paid_bills : undefined,
   };
 }
 
@@ -68,12 +132,17 @@ function fromExpenseRow(row: {
   };
 }
 
-export type IdMapping = { income: Array<{ oldId: string; newId: string }>; expenses: Array<{ oldId: string; newId: string }> };
+export type IdMapping = {
+  income: Array<{ oldId: string; newId: string }>;
+  expenses: Array<{ oldId: string; newId: string }>;
+  bills: Array<{ oldId: string; newId: string }>;
+  billPayments: Array<{ oldId: string; newId: string }>;
+};
 
 export type SaveResult = {
   ok: boolean;
   error?: string;
-  saved?: { income: number; expenses: number };
+  saved?: { income: number; expenses: number; bills: number; billPayments: number };
   /** When we assigned new UUIDs to legacy entries, use this to update local state so ids stay in sync. */
   idMapping?: IdMapping;
 };
@@ -93,7 +162,7 @@ export async function saveFinancialDataToSupabase(data: FinancialData): Promise<
   const userId = user.id;
 
   try {
-    const idMapping: IdMapping = { income: [], expenses: [] };
+    const idMapping: IdMapping = { income: [], expenses: [], bills: [], billPayments: [] };
 
     const incomeRows = data.incomeHistory.map((entry) => {
       const id = isValidUUID(entry.id) ? entry.id : crypto.randomUUID();
@@ -107,9 +176,23 @@ export async function saveFinancialDataToSupabase(data: FinancialData): Promise<
       return toExpenseRow(expense, id, userId);
     });
 
-    const totalToSave = incomeRows.length + expenseRows.length;
+    const billRows = (data.bills ?? []).map((bill) => {
+      const id = isValidUUID(bill.id) ? bill.id : crypto.randomUUID();
+      if (id !== bill.id) idMapping.bills.push({ oldId: bill.id, newId: id });
+      return toBillRow(bill, id, userId);
+    });
+
+    const billIdRemap = new Map(idMapping.bills.map(m => [m.oldId, m.newId]));
+    const billPaymentRows = (data.billPayments ?? []).map((payment) => {
+      const id = isValidUUID(payment.id) ? payment.id : crypto.randomUUID();
+      if (id !== payment.id) idMapping.billPayments.push({ oldId: payment.id, newId: id });
+      const billId = billIdRemap.get(payment.billId) ?? payment.billId;
+      return toBillPaymentRow({ ...payment, billId }, id, userId);
+    });
+
+    const totalToSave = incomeRows.length + expenseRows.length + billRows.length + billPaymentRows.length;
     if (totalToSave === 0) {
-      return { ok: true, saved: { income: 0, expenses: 0 } };
+      return { ok: true, saved: { income: 0, expenses: 0, bills: 0, billPayments: 0 } };
     }
 
     if (incomeRows.length > 0) {
@@ -126,10 +209,33 @@ export async function saveFinancialDataToSupabase(data: FinancialData): Promise<
       if (expenseError) return { ok: false, error: expenseError.message };
     }
 
-    const hasMapping = idMapping.income.length > 0 || idMapping.expenses.length > 0;
+    if (billRows.length > 0) {
+      const { error: billError } = await supabase
+        .from('bills')
+        .upsert(billRows, { onConflict: 'id' });
+      if (billError) return { ok: false, error: billError.message };
+    }
+
+    if (billPaymentRows.length > 0) {
+      const { error: paymentError } = await supabase
+        .from('bill_payments')
+        .upsert(billPaymentRows, { onConflict: 'id' });
+      if (paymentError) return { ok: false, error: paymentError.message };
+    }
+
+    const hasMapping =
+      idMapping.income.length > 0 ||
+      idMapping.expenses.length > 0 ||
+      idMapping.bills.length > 0 ||
+      idMapping.billPayments.length > 0;
     return {
       ok: true,
-      saved: { income: incomeRows.length, expenses: expenseRows.length },
+      saved: {
+        income: incomeRows.length,
+        expenses: expenseRows.length,
+        bills: billRows.length,
+        billPayments: billPaymentRows.length,
+      },
       idMapping: hasMapping ? idMapping : undefined,
     };
   } catch (e) {
@@ -154,20 +260,25 @@ export async function loadFinancialDataFromSupabase(): Promise<LoadResult> {
   }
 
   try {
-    const [incomeRes, expenseRes] = await Promise.all([
+    const [incomeRes, expenseRes, billsRes, paymentsRes] = await Promise.all([
       supabase.from('income_history').select('*').order('date', { ascending: false }),
       supabase.from('expenses').select('*').order('date', { ascending: false }),
+      supabase.from('bills').select('*').order('due_date', { ascending: true }),
+      supabase.from('bill_payments').select('*').order('paid_date', { ascending: false }),
     ]);
 
     if (incomeRes.error) return { ok: false, error: incomeRes.error.message };
     if (expenseRes.error) return { ok: false, error: expenseRes.error.message };
+    // Bills / payments tables may not exist yet — treat as empty
+    const bills = billsRes.error ? [] : (billsRes.data ?? []).map(fromBillRow).filter(b => b.active);
+    const billPayments = paymentsRes.error ? [] : (paymentsRes.data ?? []).map(fromBillPaymentRow);
 
     const incomeHistory = (incomeRes.data ?? []).map(fromIncomeRow);
     const expenses = (expenseRes.data ?? []).map(fromExpenseRow);
 
     return {
       ok: true,
-      data: { incomeHistory, expenses },
+      data: { incomeHistory, expenses, bills, billPayments },
     };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

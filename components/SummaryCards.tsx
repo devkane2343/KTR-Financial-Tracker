@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { FinancialData, Category } from '../types';
 import { formatCurrency, getNetIncome, getDeductionsForEntry, isSavingsCategory } from '../lib/utils';
-import { TrendingUp, Wallet, PiggyBank, Receipt, Banknote, CreditCard, Info } from 'lucide-react';
+import { TrendingUp, Wallet, PiggyBank, Banknote, CreditCard, Receipt } from 'lucide-react';
 
 interface SummaryCardsProps {
   data: FinancialData;
@@ -18,8 +18,7 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ data }) => {
   const totalExpenses = expenses
     .filter(exp => !isSavingsCategory(exp.category))
     .reduce((sum, exp) => sum + exp.amount, 0);
-  
-  // Total Savings = Emergency Fund + General Savings from salary deductions + savings expenses
+
   const savingsFromIncome = incomeHistory.reduce(
     (sum, inc) => sum + (inc.emergencyFund || 0) + (inc.generalSavings || 0),
     0
@@ -32,7 +31,6 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ data }) => {
     .reduce((sum, e) => sum + e.amount, 0);
   const grossSavings = savingsFromIncome + savingsFromExpenses;
 
-  // Calculate total savings used to cover monthly deficits
   const monthsSet = new Set<string>();
   incomeHistory.forEach(inc => {
     const [y, m] = inc.date.split('-').map(Number);
@@ -53,7 +51,6 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ data }) => {
       const [y, m] = exp.date.split('-').map(Number);
       return `${y}-${String(m).padStart(2, '0')}` === monthKey;
     });
-
     const monthNet = monthIncome.reduce((sum, inc) => sum + getNetIncome(inc), 0);
     const monthExp = monthExpenses
       .filter(exp => !isSavingsCategory(exp.category))
@@ -65,7 +62,6 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ data }) => {
       .filter(exp => isSavingsCategory(exp.category))
       .reduce((sum, exp) => sum + exp.amount, 0);
     const monthSavings = monthSavingsFromIncome + monthSavingsFromExpenses;
-
     const rawBalance = monthNet - monthExp;
     if (rawBalance < 0) {
       totalSavingsUsed += Math.min(Math.abs(rawBalance), monthSavings);
@@ -73,102 +69,120 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ data }) => {
   });
 
   const totalSavings = grossSavings - totalSavingsUsed;
-
   const currentBalance = totalNetIncome - totalExpenses;
 
   const cards = [
     {
       label: 'Lifetime Earnings',
+      kicker: 'I',
       value: formatCurrency(lifetimeEarnings),
-      icon: <Banknote className="w-5 h-5" />,
-      textColor: 'text-amber-600',
-      bgColor: 'bg-amber-50',
-      formula: 'Sum of all Weekly Salaries',
+      icon: <Banknote className="w-4 h-4" />,
+      tone: 'gold',
+      formula: 'Sum of all weekly salaries',
       details: `∑ Weekly Salary = ${formatCurrency(lifetimeEarnings)}`
     },
     {
       label: 'Wallet Balance',
+      kicker: 'II',
       value: formatCurrency(currentBalance),
-      icon: <Wallet className="w-5 h-5" />,
-      textColor: 'text-blue-600',
-      bgColor: 'bg-blue-50',
-      formula: 'Total Net Income - Total Expenses',
-      details: `${formatCurrency(totalNetIncome)} - ${formatCurrency(totalExpenses)} = ${formatCurrency(currentBalance)}`
+      icon: <Wallet className="w-4 h-4" />,
+      tone: 'jade',
+      formula: 'Net Income − Expenses',
+      details: `${formatCurrency(totalNetIncome)} − ${formatCurrency(totalExpenses)} = ${formatCurrency(currentBalance)}`
     },
     {
       label: 'Total Savings',
+      kicker: 'III',
       value: formatCurrency(totalSavings),
-      icon: <PiggyBank className="w-5 h-5" />,
-      textColor: 'text-emerald-600',
-      bgColor: 'bg-emerald-50',
+      icon: <PiggyBank className="w-4 h-4" />,
+      tone: 'jade',
       formula: totalSavingsUsed > 0
-        ? '(Savings from Income + Savings Expenses) - Savings Used'
-        : 'Savings from Income + Savings Expenses',
+        ? '(Savings In + Savings Expenses) − Used'
+        : 'Savings In + Savings Expenses',
       details: totalSavingsUsed > 0
-        ? `Gross Savings: ${formatCurrency(savingsFromIncome)} + ${formatCurrency(savingsFromExpenses)} = ${formatCurrency(grossSavings)}\nSavings Used (deficit coverage): -${formatCurrency(totalSavingsUsed)}\nRemaining Savings: ${formatCurrency(totalSavings)}`
-        : `${formatCurrency(savingsFromIncome)} + ${formatCurrency(savingsFromExpenses)} = ${formatCurrency(totalSavings)}\n\nIncludes: Emergency Fund & General Savings from both income deductions and expense entries`
+        ? `Gross: ${formatCurrency(savingsFromIncome)} + ${formatCurrency(savingsFromExpenses)} = ${formatCurrency(grossSavings)}\nUsed (deficit cover): −${formatCurrency(totalSavingsUsed)}\nRemaining: ${formatCurrency(totalSavings)}`
+        : `${formatCurrency(savingsFromIncome)} + ${formatCurrency(savingsFromExpenses)} = ${formatCurrency(totalSavings)}`
     },
     {
-      label: 'Expenses',
+      label: 'Lifetime Expenses',
+      kicker: 'IV',
       value: formatCurrency(totalExpenses),
-      icon: <CreditCard className="w-5 h-5" />,
-      textColor: 'text-orange-600',
-      bgColor: 'bg-orange-50',
-      formula: 'Sum of all Expenses (excludes EF & General Savings)',
-      details: `∑ Expenses (excl. Savings) = ${formatCurrency(totalExpenses)}\n\nEmergency Fund & General Savings are tracked under Total Savings`
+      icon: <CreditCard className="w-4 h-4" />,
+      tone: 'coral',
+      formula: 'Sum of all expenses (excl. savings)',
+      details: `∑ Expenses (excl. Savings) = ${formatCurrency(totalExpenses)}`
     },
     {
       label: 'Total Net Income',
+      kicker: 'V',
       value: formatCurrency(totalNetIncome),
-      icon: <TrendingUp className="w-5 h-5" />,
-      textColor: 'text-indigo-600',
-      bgColor: 'bg-indigo-50',
-      formula: '∑ (Weekly Salary - Deductions)',
-      details: `For each income entry:\nNet = Weekly Salary - (SSS + Pag-IBIG + PhilHealth + VUL + Emergency Fund + General Savings)\n\nTotal Net Income = ${formatCurrency(totalNetIncome)}`
+      icon: <TrendingUp className="w-4 h-4" />,
+      tone: 'jade',
+      formula: '∑ (Weekly Salary − Deductions)',
+      details: `Net = Salary − (SSS + Pag-IBIG + PhilHealth + VUL + EF + GS)\n\nTotal = ${formatCurrency(totalNetIncome)}`
     },
     {
       label: 'Lifetime Deductions',
+      kicker: 'VI',
       value: formatCurrency(totalDeductions),
-      icon: <Receipt className="w-5 h-5" />,
-      textColor: 'text-red-600',
-      bgColor: 'bg-red-50',
+      icon: <Receipt className="w-4 h-4" />,
+      tone: 'ink',
       formula: '∑ (SSS + Pag-IBIG + PhilHealth + VUL + EF + GS)',
-      details: `Total Deductions = SSS + Pag-IBIG + PhilHealth + VUL + Emergency Fund + General Savings\n\nSum = ${formatCurrency(totalDeductions)}`
+      details: `Total Deductions = ${formatCurrency(totalDeductions)}`
     }
   ];
 
+  const toneClasses = {
+    gold: { iconBg: 'bg-gold-50 text-gold-600', accent: 'text-gold-600' },
+    jade: { iconBg: 'bg-jade-50 text-jade-500', accent: 'text-jade-500' },
+    coral: { iconBg: 'bg-coral-50 text-coral-500', accent: 'text-coral-500' },
+    ink: { iconBg: 'bg-ink/8 text-ink-soft', accent: 'text-ink' },
+  };
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-      {cards.map((card, idx) => (
-        <div 
-          key={idx} 
-          className="relative bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-start gap-4 transition-all duration-200 hover:shadow-lg hover:border-slate-300 cursor-help group"
-          onMouseEnter={() => setHoveredCard(idx)}
-          onMouseLeave={() => setHoveredCard(null)}
-        >
-          <div className={`${card.bgColor} ${card.textColor} p-2.5 rounded-lg`}>
-            {card.icon}
-          </div>
-          <div className="flex-1">
-            <div className="flex items-center gap-1.5 mb-1">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{card.label}</p>
-              <Info className="w-3.5 h-3.5 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+      {cards.map((card, idx) => {
+        const tones = toneClasses[card.tone as keyof typeof toneClasses];
+        const isHovered = hoveredCard === idx;
+        return (
+          <div
+            key={idx}
+            className="group relative bg-paper rounded-2xl p-5 shadow-paper hover:shadow-paper-lift transition-all duration-300 cursor-help overflow-visible stagger animate-fade-up"
+            style={{ animationDelay: `${idx * 70}ms` }}
+            onMouseEnter={() => setHoveredCard(idx)}
+            onMouseLeave={() => setHoveredCard(null)}
+          >
+            {/* Top row: kicker + icon */}
+            <div className="flex items-start justify-between mb-3">
+              <span className="font-display text-[11px] font-medium text-ink-whisper tracking-[0.18em]">
+                № {card.kicker}
+              </span>
+              <div className={`${tones.iconBg} w-8 h-8 rounded-full flex items-center justify-center`}>
+                {card.icon}
+              </div>
             </div>
-            <p className="text-xl font-bold text-slate-900">{card.value}</p>
-          </div>
 
-          {/* Tooltip */}
-          {hoveredCard === idx && (
-            <div className="absolute z-50 left-0 right-0 top-full mt-2 bg-slate-900 text-white p-4 rounded-lg shadow-xl border border-slate-700 animate-in fade-in slide-in-from-top-2 duration-200">
-              <div className="absolute -top-2 left-6 w-4 h-4 bg-slate-900 border-l border-t border-slate-700 transform rotate-45"></div>
-              <p className="font-bold text-sm mb-2 text-amber-400">Formula:</p>
-              <p className="text-xs font-mono mb-3 text-slate-200">{card.formula}</p>
-              <p className="font-bold text-sm mb-2 text-emerald-400">Calculation:</p>
-              <p className="text-xs font-mono whitespace-pre-line text-slate-300">{card.details}</p>
-            </div>
-          )}
-        </div>
-      ))}
+            {/* Label */}
+            <p className="eyebrow mb-2">{card.label}</p>
+
+            {/* Value */}
+            <p className={`num text-[26px] font-medium tracking-tight text-ink leading-none transition-colors group-hover:${tones.accent}`}>
+              {card.value}
+            </p>
+
+            {/* Tooltip */}
+            {isHovered && (
+              <div className="absolute z-50 left-0 right-0 top-full mt-2 bg-ink text-paper p-4 rounded-xl shadow-paper-lift animate-fade-up">
+                <div className="absolute -top-1.5 left-6 w-3 h-3 bg-ink rotate-45" />
+                <p className="eyebrow text-gold-300 mb-1.5">Formula</p>
+                <p className="text-xs font-mono mb-3 text-paper/85">{card.formula}</p>
+                <p className="eyebrow text-jade-200 mb-1.5">Calculation</p>
+                <p className="text-xs font-mono whitespace-pre-line text-paper/70 leading-relaxed">{card.details}</p>
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 };

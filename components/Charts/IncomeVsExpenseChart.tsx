@@ -53,38 +53,41 @@ export const IncomeVsExpenseChart: React.FC<IncomeVsExpenseChartProps> = ({ data
   }, [data]);
 
   const chartData = [
-    { name: 'Lifetime Net Income', amount: totalNet, color: '#10b981' },
-    { name: 'Mandatory Deductions', amount: totalDeductions, color: '#ef4444' },
-    { name: 'Lifetime Savings', amount: totalSavings, color: '#6366f1' },
-    { name: 'Lifetime Expenses', amount: totalExp, color: '#f59e0b' }
+    { name: 'Lifetime Net Income', amount: totalNet, color: '#0e5544' },
+    { name: 'Mandatory Deductions', amount: totalDeductions, color: '#0a0d10' },
+    { name: 'Lifetime Savings', amount: totalSavings, color: '#3f835c' },
+    { name: 'Lifetime Expenses', amount: totalExp, color: '#b8893d' }
   ];
 
+  const burnTone = utilization > 90 ? 'coral' : utilization > 70 ? 'gold' : 'jade';
+  const burnLabel = utilization > 90 ? 'Aggressive — pull back' : utilization > 70 ? 'Watchful' : 'Disciplined';
+
   return (
-    <Card title="Overall Budget Utilization">
+    <Card title="Budget Utilization" eyebrow="Chapter · Allocation">
       {dateRange && (
-        <div className="mb-3 text-xs text-slate-500 bg-slate-50 px-3 py-2 rounded-lg border border-slate-100">
-          <span className="font-semibold">Period:</span> {dateRange}
-        </div>
+        <p className="font-mono text-[11px] text-ink-muted mb-4">{dateRange}</p>
       )}
-      <div className="h-[300px] w-full mt-4">
+      <div className="h-[260px] w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={chartData} layout="vertical" margin={{ left: -20, right: 40 }}>
-            <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f1f5f9" />
+          <BarChart data={chartData} layout="vertical" margin={{ left: -10, right: 24 }}>
+            <CartesianGrid strokeDasharray="2 4" horizontal vertical={false} stroke="rgba(10,13,16,0.06)" />
             <XAxis type="number" hide />
-            <YAxis 
-              dataKey="name" 
-              type="category" 
-              axisLine={false} 
-              tickLine={false} 
-              tick={{ fontSize: 10, fontWeight: 500, fill: '#64748b' }}
-              width={120}
+            <YAxis
+              dataKey="name"
+              type="category"
+              axisLine={false}
+              tickLine={false}
+              tick={{ fontSize: 10, fontWeight: 500, fill: '#5a6168', fontFamily: 'Geist' }}
+              width={130}
             />
-            <Tooltip 
-              cursor={{ fill: 'transparent' }}
+            <Tooltip
+              cursor={{ fill: 'rgba(10,13,16,0.04)' }}
               formatter={(value: number) => formatCurrency(value)}
-              contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+              contentStyle={{ borderRadius: '12px', border: 'none', background: '#0a0d10', color: '#fbf8f1', fontSize: '12px', fontFamily: 'Geist', boxShadow: '0 12px 32px -16px rgba(10,13,16,0.4)' }}
+              labelStyle={{ color: '#fbf8f1', opacity: 0.6 }}
+              itemStyle={{ color: '#fbf8f1' }}
             />
-            <Bar dataKey="amount" radius={[0, 4, 4, 0]} barSize={40}>
+            <Bar dataKey="amount" radius={[0, 6, 6, 0]} barSize={28}>
               {chartData.map((entry, index) => (
                 <Cell key={`cell-${index}`} fill={entry.color} />
               ))}
@@ -92,18 +95,23 @@ export const IncomeVsExpenseChart: React.FC<IncomeVsExpenseChartProps> = ({ data
           </BarChart>
         </ResponsiveContainer>
       </div>
-      <div className="mt-4">
-        <div className="flex justify-between text-xs font-semibold text-slate-500 mb-1">
-          <span>Overall Burn Rate</span>
-          <span>{Math.round(utilization)}%</span>
+      <div className="mt-5 pt-5 border-t border-rule">
+        <div className="flex items-baseline justify-between mb-2">
+          <span className="eyebrow">Burn Rate</span>
+          <div className="flex items-baseline gap-2">
+            <span className="num text-2xl font-medium text-ink">{Math.round(utilization)}<span className="text-ink-whisper text-base">%</span></span>
+            <span className={`eyebrow ${
+              burnTone === 'coral' ? 'text-coral-500' : burnTone === 'gold' ? 'text-gold-600' : 'text-jade-500'
+            }`}>{burnLabel}</span>
+          </div>
         </div>
-        <div className="w-full bg-slate-100 rounded-full h-2">
-          <div 
-            className={`h-2 rounded-full transition-all duration-1000 ${
-              utilization > 90 ? 'bg-red-500' : utilization > 70 ? 'bg-amber-500' : 'bg-emerald-500'
+        <div className="w-full bg-ink/5 rounded-full h-1.5 overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-1000 ${
+              burnTone === 'coral' ? 'bg-coral-500' : burnTone === 'gold' ? 'bg-gold-500' : 'bg-jade-500'
             }`}
             style={{ width: `${Math.min(100, utilization)}%` }}
-          ></div>
+          />
         </div>
       </div>
     </Card>

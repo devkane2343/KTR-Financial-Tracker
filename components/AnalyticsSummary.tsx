@@ -2,7 +2,7 @@
 import React, { useMemo, useState } from 'react';
 import { FinancialData } from '../types';
 import { formatCurrency, isSavingsCategory, getMonthlyIncomeTotals } from '../lib/utils';
-import { TrendingUp, Wallet, CreditCard, BarChart3, Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
+import { TrendingUp, Wallet, CreditCard, BarChart3, ChevronLeft, ChevronRight, Sparkles } from 'lucide-react';
 
 interface AnalyticsSummaryProps {
   data: FinancialData;
@@ -10,8 +10,21 @@ interface AnalyticsSummaryProps {
 
 export const AnalyticsSummary: React.FC<AnalyticsSummaryProps> = ({ data }) => {
   const [selectedMonthIndex, setSelectedMonthIndex] = useState(0);
-  const { dateRange, monthlyGrossIncome, monthlyNetIncome, monthlyExpenses, monthlyNetBalance, monthlySavings, savingsUsed, monthPeriod, sortedMonths, incomeCountForMonth, expenseCountForMonth } = useMemo(() => {
-    // Calculate overall date range
+
+  const {
+    dateRange,
+    monthlyGrossIncome,
+    monthlyNetIncome,
+    monthlyExpenses,
+    monthlyNetBalance,
+    monthlySavings,
+    savingsUsed,
+    monthPeriod,
+    monthLabel,
+    sortedMonths,
+    incomeCountForMonth,
+    expenseCountForMonth,
+  } = useMemo(() => {
     const allDates: Date[] = [];
     data.incomeHistory.forEach(inc => {
       const [y, m, d] = inc.date.split('-').map(Number);
@@ -27,15 +40,11 @@ export const AnalyticsSummary: React.FC<AnalyticsSummaryProps> = ({ data }) => {
       const earliest = new Date(Math.min(...allDates.map(d => d.getTime())));
       const latest = new Date(Math.max(...allDates.map(d => d.getTime())));
       const formatDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-      
-      if (earliest.getTime() === latest.getTime()) {
-        dateRange = formatDate(earliest);
-      } else {
-        dateRange = `${formatDate(earliest)} – ${formatDate(latest)}`;
-      }
+      dateRange = earliest.getTime() === latest.getTime() ? formatDate(earliest) : `${formatDate(earliest)} – ${formatDate(latest)}`;
     }
 
     let monthPeriod = 'No data';
+    let monthLabel = '—';
     let monthlyGrossIncome = 0;
     let monthlyNetIncome = 0;
     let monthlyExpenses = 0;
@@ -46,10 +55,7 @@ export const AnalyticsSummary: React.FC<AnalyticsSummaryProps> = ({ data }) => {
     let expenseCountForMonth = 0;
     let sortedMonths: string[] = [];
 
-    // Split income entries proportionally across months (handles pay periods crossing month boundaries)
     const monthlyIncomeMap = getMonthlyIncomeTotals(data.incomeHistory);
-
-    // Collect all months from both income (split-aware) and expenses
     const monthsSet = new Set<string>(monthlyIncomeMap.keys());
     data.expenses.forEach(exp => {
       const [y, m] = exp.date.split('-').map(Number);
@@ -58,11 +64,8 @@ export const AnalyticsSummary: React.FC<AnalyticsSummaryProps> = ({ data }) => {
 
     if (monthsSet.size > 0) {
       sortedMonths = Array.from(monthsSet).sort();
-
       const monthIndex = Math.min(selectedMonthIndex, sortedMonths.length - 1);
       const selectedMonth = sortedMonths[sortedMonths.length - 1 - monthIndex];
-
-      // Get proportionally-split income totals for the selected month
       const incomeTotals = monthlyIncomeMap.get(selectedMonth);
 
       const selectedMonthExpenses = data.expenses.filter(exp => {
@@ -70,7 +73,6 @@ export const AnalyticsSummary: React.FC<AnalyticsSummaryProps> = ({ data }) => {
         return `${y}-${String(m).padStart(2, '0')}` === selectedMonth;
       });
 
-      // Use split income totals
       monthlyGrossIncome = incomeTotals?.grossIncome ?? 0;
       monthlyNetIncome = incomeTotals?.netIncome ?? 0;
       incomeCountForMonth = Math.round(incomeTotals?.entryCount ?? 0);
@@ -79,14 +81,12 @@ export const AnalyticsSummary: React.FC<AnalyticsSummaryProps> = ({ data }) => {
         .filter(exp => !isSavingsCategory(exp.category))
         .reduce((sum, exp) => sum + exp.amount, 0);
 
-      // Calculate monthly savings (from split income deductions + savings expense entries)
       const savingsFromIncome = (incomeTotals?.emergencyFund ?? 0) + (incomeTotals?.generalSavings ?? 0);
       const savingsFromExpenses = selectedMonthExpenses
         .filter(exp => isSavingsCategory(exp.category))
         .reduce((sum, exp) => sum + exp.amount, 0);
       monthlySavings = savingsFromIncome + savingsFromExpenses;
 
-      // If deficit, use savings to cover it
       const rawBalance = monthlyNetIncome - monthlyExpenses;
       if (rawBalance < 0) {
         savingsUsed = Math.min(Math.abs(rawBalance), monthlySavings);
@@ -101,105 +101,205 @@ export const AnalyticsSummary: React.FC<AnalyticsSummaryProps> = ({ data }) => {
       const [y, m] = selectedMonth.split('-').map(Number);
       const firstDay = new Date(y, m - 1, 1);
       const lastDay = new Date(y, m, 0);
-
-      const formatFullDate = (d: Date) => d.toLocaleDateString('en-US', {
-        month: 'long',
-        day: 'numeric',
-        year: 'numeric'
-      });
-
-      monthPeriod = `${formatFullDate(firstDay)} - ${formatFullDate(lastDay)}`;
+      const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+      monthPeriod = `${fmt(firstDay)} — ${fmt(lastDay)}`;
+      monthLabel = firstDay.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
     }
 
-    return { dateRange, monthlyGrossIncome, monthlyNetIncome, monthlyExpenses, monthlyNetBalance, monthlySavings, savingsUsed, monthPeriod, sortedMonths, incomeCountForMonth, expenseCountForMonth };
+    return {
+      dateRange,
+      monthlyGrossIncome,
+      monthlyNetIncome,
+      monthlyExpenses,
+      monthlyNetBalance,
+      monthlySavings,
+      savingsUsed,
+      monthPeriod,
+      monthLabel,
+      sortedMonths,
+      incomeCountForMonth,
+      expenseCountForMonth,
+    };
   }, [data, selectedMonthIndex]);
 
   const averageNetIncomeForMonth = incomeCountForMonth > 0 ? monthlyNetIncome / incomeCountForMonth : 0;
+  const savingsRate = monthlyGrossIncome > 0 ? Math.max(0, Math.min(1, monthlySavings / monthlyGrossIncome)) : 0;
+  const savingsRatePct = Math.round(savingsRate * 100);
 
-  const cards = [
-    {
-      label: 'Monthly Gross Income',
-      value: formatCurrency(monthlyGrossIncome),
-      icon: <TrendingUp className="w-5 h-5" />,
-      textColor: 'text-emerald-600',
-      bgColor: 'bg-emerald-50',
-      sublabel: monthPeriod
-    },
-    {
-      label: 'Average Net Income',
-      sublabel: `${incomeCountForMonth} ${incomeCountForMonth === 1 ? 'paycheck' : 'paychecks'}`,
-      value: formatCurrency(averageNetIncomeForMonth),
-      icon: <BarChart3 className="w-5 h-5" />,
-      textColor: 'text-indigo-600',
-      bgColor: 'bg-indigo-50'
-    },
-    {
-      label: 'Total Expenses',
-      value: formatCurrency(monthlyExpenses),
-      icon: <CreditCard className="w-5 h-5" />,
-      textColor: 'text-amber-600',
-      bgColor: 'bg-amber-50',
-      sublabel: `${expenseCountForMonth} ${expenseCountForMonth === 1 ? 'transaction' : 'transactions'}`
-    },
-    {
-      label: 'Net Balance',
-      value: formatCurrency(monthlyNetBalance),
-      icon: <Wallet className="w-5 h-5" />,
-      textColor: monthlyNetBalance >= 0 ? 'text-blue-600' : 'text-red-600',
-      bgColor: monthlyNetBalance >= 0 ? 'bg-blue-50' : 'bg-red-50',
-      sublabel: savingsUsed > 0
-        ? `${formatCurrency(savingsUsed)} savings used`
-        : monthlyNetBalance >= 0 ? 'Available' : 'Deficit'
-    }
-  ];
+  // Health score: weighted blend of (savings rate, surplus presence, expense discipline)
+  const expenseRatio = monthlyNetIncome > 0 ? monthlyExpenses / monthlyNetIncome : 1;
+  const expenseScore = Math.max(0, Math.min(1, 1 - expenseRatio)); // 1 if expenses=0, 0 if expenses=net
+  const surplusScore = monthlyNetBalance >= 0 ? 1 : 0;
+  const healthScore = Math.round((savingsRate * 0.45 + expenseScore * 0.35 + surplusScore * 0.20) * 100);
+  const healthLabel = healthScore >= 80 ? 'Excellent' : healthScore >= 60 ? 'Strong' : healthScore >= 40 ? 'Steady' : healthScore >= 20 ? 'Tightening' : 'Strained';
+  const healthAccent = healthScore >= 60 ? 'jade' : healthScore >= 40 ? 'gold' : 'coral';
+
+  const ringCircumference = 2 * Math.PI * 36;
+  const ringOffset = ringCircumference * (1 - savingsRate);
 
   return (
-    <div className="space-y-4">
-      {/* Date Range Banner */}
-      <div className="bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-100 rounded-lg p-3 flex items-center gap-2">
-        <Calendar className="w-4 h-4 text-indigo-600 shrink-0" />
-        <div className="min-w-0">
-          <p className="text-xs font-semibold text-indigo-900">Data Period</p>
-          <p className="text-sm font-bold text-indigo-700 truncate">{dateRange}</p>
+    <div className="space-y-5">
+      {/* Editorial month banner */}
+      <div className="relative bg-paper rounded-2xl shadow-paper overflow-hidden">
+        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-jade-500 via-gold-400 to-coral-400" />
+        <div className="p-6 sm:p-7 flex flex-wrap items-end justify-between gap-4">
+          <div className="min-w-0">
+            <p className="eyebrow mb-1.5">Issue &middot; Selected Month</p>
+            <h2 className="font-display text-3xl sm:text-4xl text-ink leading-none">{monthLabel}</h2>
+            <p className="font-mono text-[11px] text-ink-muted mt-2">{monthPeriod}</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              <p className="eyebrow mb-0.5">Archive spans</p>
+              <p className="font-mono text-xs text-ink-soft">{dateRange}</p>
+            </div>
+            {sortedMonths.length > 1 && (
+              <div className="flex items-center gap-1 ml-2 border border-rule rounded-full p-1">
+                <button
+                  onClick={() => setSelectedMonthIndex(prev => Math.min(prev + 1, sortedMonths.length - 1))}
+                  disabled={selectedMonthIndex >= sortedMonths.length - 1}
+                  className="p-1.5 rounded-full hover:bg-ink/5 disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
+                  title="Earlier month"
+                >
+                  <ChevronLeft className="w-4 h-4 text-ink" />
+                </button>
+                <span className="font-mono text-[10px] text-ink-muted px-1.5 select-none">
+                  {sortedMonths.length - selectedMonthIndex}/{sortedMonths.length}
+                </span>
+                <button
+                  onClick={() => setSelectedMonthIndex(prev => Math.max(prev - 1, 0))}
+                  disabled={selectedMonthIndex <= 0}
+                  className="p-1.5 rounded-full hover:bg-ink/5 disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
+                  title="Later month"
+                >
+                  <ChevronRight className="w-4 h-4 text-ink" />
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {cards.map((card, idx) => (
-          <div key={idx} className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-start gap-4">
-            <div className={`${card.bgColor} ${card.textColor} p-2.5 rounded-lg shrink-0`}>
-              {card.icon}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center justify-between gap-2 mb-0.5">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{card.label}</p>
-                {sortedMonths.length > 1 && (
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => setSelectedMonthIndex(prev => Math.min(prev + 1, sortedMonths.length - 1))}
-                      disabled={selectedMonthIndex >= sortedMonths.length - 1}
-                      className="p-0.5 rounded hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                      title="Previous month"
-                    >
-                      <ChevronLeft className="w-4 h-4 text-slate-600" />
-                    </button>
-                    <button
-                      onClick={() => setSelectedMonthIndex(prev => Math.max(prev - 1, 0))}
-                      disabled={selectedMonthIndex <= 0}
-                      className="p-0.5 rounded hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                      title="Next month"
-                    >
-                      <ChevronRight className="w-4 h-4 text-slate-600" />
-                    </button>
-                  </div>
-                )}
+      {/* Featured: Monthly Gross Income — the headline */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <div className="lg:col-span-7 relative bg-ink text-paper rounded-2xl p-7 shadow-paper-lift overflow-hidden">
+          <div className="absolute -right-20 -top-20 w-72 h-72 rounded-full bg-jade-500/15 blur-3xl pointer-events-none" />
+          <div className="absolute -right-32 -bottom-20 w-72 h-72 rounded-full bg-gold-400/12 blur-3xl pointer-events-none" />
+          <div className="relative">
+            <div className="flex items-center justify-between mb-6">
+              <p className="eyebrow text-paper/55">Monthly Gross Income</p>
+              <div className="flex items-center gap-2 text-paper/55 text-xs font-mono">
+                <TrendingUp className="w-3.5 h-3.5" />
+                <span>{incomeCountForMonth} {incomeCountForMonth === 1 ? 'paycheck' : 'paychecks'}</span>
               </div>
-              {card.sublabel && <p className="text-[10px] text-slate-400 mb-0.5">{card.sublabel}</p>}
-              <p className="text-xl font-bold text-slate-900 truncate">{card.value}</p>
+            </div>
+            <p className="num font-medium text-[44px] sm:text-[56px] leading-[0.9] tracking-tight text-paper animate-count-pop">
+              {formatCurrency(monthlyGrossIncome)}
+            </p>
+            <div className="flex items-baseline gap-6 mt-6 pt-5 border-t border-paper/10">
+              <div>
+                <p className="eyebrow text-paper/45 mb-0.5">Net after deductions</p>
+                <p className="num text-lg text-paper">{formatCurrency(monthlyNetIncome)}</p>
+              </div>
+              <div className="hairline w-12 self-center opacity-30" />
+              <div>
+                <p className="eyebrow text-paper/45 mb-0.5">Avg per paycheck</p>
+                <p className="num text-lg text-paper">{formatCurrency(averageNetIncomeForMonth)}</p>
+              </div>
             </div>
           </div>
-        ))}
+        </div>
+
+        {/* Health Score + Savings Ring */}
+        <div className="lg:col-span-5 relative bg-paper rounded-2xl p-7 shadow-paper overflow-hidden">
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <p className="eyebrow mb-1">Discipline Score</p>
+              <h3 className="font-display text-3xl text-ink leading-none">{healthScore}<span className="text-ink-whisper text-xl">/100</span></h3>
+              <p className={`mt-2 inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider ${
+                healthAccent === 'jade' ? 'text-jade-500' : healthAccent === 'gold' ? 'text-gold-600' : 'text-coral-500'
+              }`}>
+                <Sparkles className="w-3 h-3" /> {healthLabel}
+              </p>
+            </div>
+            {/* Savings rate ring */}
+            <div className="relative w-[88px] h-[88px]">
+              <svg viewBox="0 0 80 80" className="w-full h-full -rotate-90">
+                <circle cx="40" cy="40" r="36" fill="none" stroke="rgba(10,13,16,0.08)" strokeWidth="6" />
+                <circle
+                  cx="40" cy="40" r="36"
+                  fill="none"
+                  stroke="url(#ringGrad)"
+                  strokeWidth="6"
+                  strokeLinecap="round"
+                  strokeDasharray={ringCircumference}
+                  strokeDashoffset={ringOffset}
+                  className="transition-all duration-700"
+                />
+                <defs>
+                  <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stopColor="#0e5544" />
+                    <stop offset="100%" stopColor="#b8893d" />
+                  </linearGradient>
+                </defs>
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <p className="num text-lg font-semibold text-ink leading-none">{savingsRatePct}%</p>
+                <p className="eyebrow text-[8px] mt-0.5">Saved</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="hairline my-4" />
+
+          <p className="text-xs text-ink-muted leading-relaxed">
+            {savingsRatePct >= 20
+              ? `Excellent — you set aside ${formatCurrency(monthlySavings)} this month.`
+              : savingsRatePct >= 10
+              ? `Steady. ${formatCurrency(monthlySavings)} put away. Aim for 20% next month.`
+              : monthlySavings > 0
+              ? `${formatCurrency(monthlySavings)} saved. Push harder — the goal is 20% of gross.`
+              : `Nothing saved this month. Even 5% compounds. Start small.`}
+          </p>
+        </div>
+      </div>
+
+      {/* Secondary KPIs */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="bg-paper rounded-2xl p-5 shadow-paper">
+          <div className="flex items-center justify-between mb-2">
+            <p className="eyebrow">Average Net Income</p>
+            <BarChart3 className="w-4 h-4 text-ink-whisper" />
+          </div>
+          <p className="num text-2xl text-ink font-medium">{formatCurrency(averageNetIncomeForMonth)}</p>
+          <p className="text-[11px] text-ink-muted mt-1">{incomeCountForMonth} {incomeCountForMonth === 1 ? 'paycheck' : 'paychecks'}</p>
+        </div>
+
+        <div className="bg-paper rounded-2xl p-5 shadow-paper">
+          <div className="flex items-center justify-between mb-2">
+            <p className="eyebrow">Total Expenses</p>
+            <CreditCard className="w-4 h-4 text-coral-400" />
+          </div>
+          <p className="num text-2xl text-ink font-medium">{formatCurrency(monthlyExpenses)}</p>
+          <p className="text-[11px] text-ink-muted mt-1">{expenseCountForMonth} {expenseCountForMonth === 1 ? 'transaction' : 'transactions'}</p>
+        </div>
+
+        <div className={`relative rounded-2xl p-5 shadow-paper overflow-hidden ${
+          monthlyNetBalance >= 0 ? 'bg-jade-50' : 'bg-coral-50'
+        }`}>
+          <div className="flex items-center justify-between mb-2">
+            <p className="eyebrow">Net Balance</p>
+            <Wallet className={`w-4 h-4 ${monthlyNetBalance >= 0 ? 'text-jade-500' : 'text-coral-500'}`} />
+          </div>
+          <p className={`num text-2xl font-medium ${monthlyNetBalance >= 0 ? 'text-jade-700' : 'text-coral-600'}`}>
+            {monthlyNetBalance >= 0 ? '+' : ''}{formatCurrency(monthlyNetBalance)}
+          </p>
+          <p className="text-[11px] text-ink-muted mt-1">
+            {savingsUsed > 0
+              ? `${formatCurrency(savingsUsed)} drawn from savings`
+              : monthlyNetBalance >= 0 ? 'Surplus — save it' : 'Deficit'}
+          </p>
+        </div>
       </div>
     </div>
   );

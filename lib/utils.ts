@@ -1,4 +1,4 @@
-import { IncomeEntry, Category, Expense } from '../types';
+import { IncomeEntry, Category, Expense, Bill, BillPayment } from '../types';
 
 /** Today's date as YYYY-MM-DD in local time (for form defaults). Avoids UTC shift. */
 export const getLocalDateString = (): string => {
@@ -25,14 +25,70 @@ export const formatCurrency = (amount: number): string => {
   }).format(amount);
 };
 
-/** Total deductions for one salary entry (SSS, Pag-IBIG, PhilHealth, VUL, EF, General Savings). */
-export const getDeductionsForEntry = (income: IncomeEntry | { sss: number; pagibig: number; philhealth: number; vul: number; emergencyFund?: number; generalSavings?: number }): number => {
-  return (income.sss || 0) + (income.pagibig || 0) + (income.philhealth || 0) + (income.vul || 0) + (income.emergencyFund || 0) + (income.generalSavings || 0);
+/** Total deductions for one salary entry (statutory + bill payments). */
+export const getDeductionsForEntry = (income: IncomeEntry | { sss: number; pagibig: number; philhealth: number; vul: number; emergencyFund?: number; generalSavings?: number; paidBills?: Array<{ amount: number }> }): number => {
+  const statutory = (income.sss || 0) + (income.pagibig || 0) + (income.philhealth || 0) + (income.vul || 0) + (income.emergencyFund || 0) + (income.generalSavings || 0);
+  const bills = ('paidBills' in income ? (income.paidBills ?? []) : []).reduce((sum, b) => sum + (b.amount || 0), 0);
+  return statutory + bills;
 };
 
-export const getNetIncome = (income: IncomeEntry | { weeklySalary: number; sss: number; pagibig: number; philhealth: number; vul: number; emergencyFund?: number; generalSavings?: number }): number => {
+export const getNetIncome = (income: IncomeEntry | { weeklySalary: number; sss: number; pagibig: number; philhealth: number; vul: number; emergencyFund?: number; generalSavings?: number; paidBills?: Array<{ amount: number }> }): number => {
   const totalDeductions = getDeductionsForEntry(income);
   return Math.max(0, income.weeklySalary - totalDeductions);
+};
+
+/** Returns true if any payment for this bill has a dueDate in the current calendar month. */
+export const isBillPaidThisMonth = (billId: string, payments: BillPayment[]): boolean => {
+  const now = new Date();
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  return payments.some(p => p.billId === billId && p.dueDate.startsWith(currentMonth));
+};
+
+/** Returns the most recent payment for a bill in the current month, or undefined. */
+export const getCurrentMonthPayment = (billId: string, payments: BillPayment[]): BillPayment | undefined => {
+  const now = new Date();
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  return payments.find(p => p.billId === billId && p.dueDate.startsWith(currentMonth));
+};
+
+/** Add N months to a YYYY-MM-DD string. Clamps day to the last day of the target month if needed. */
+export const addMonths = (dateStr: string, months: number): string => {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const targetMonthIdx = m - 1 + months;
+  const targetYear = y + Math.floor(targetMonthIdx / 12);
+  const targetMonth = ((targetMonthIdx % 12) + 12) % 12;
+  const lastDayOfTarget = new Date(targetYear, targetMonth + 1, 0).getDate();
+  const day = Math.min(d, lastDayOfTarget);
+  return `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+};
+
+/** Whole days between two YYYY-MM-DD dates (b - a). Negative if a is later. */
+export const daysBetween = (aStr: string, bStr: string): number => {
+  const [ay, am, ad] = aStr.split('-').map(Number);
+  const [by, bm, bd] = bStr.split('-').map(Number);
+  const a = new Date(ay, am - 1, ad).getTime();
+  const b = new Date(by, bm - 1, bd).getTime();
+  return Math.round((b - a) / 86_400_000);
+};
+
+export type BillStatus = 'overdue' | 'due-soon' | 'upcoming' | 'paid-ahead' | 'paid-off';
+
+/** Number of payments recorded for a bill. */
+export const getPaymentsMade = (billId: string, payments: BillPayment[]): number =>
+  payments.reduce((n, p) => n + (p.billId === billId ? 1 : 0), 0);
+
+/** True if a finite-installment bill has reached its total. */
+export const isBillPaidOff = (bill: Bill, payments: BillPayment[]): boolean =>
+  bill.totalPayments !== undefined && getPaymentsMade(bill.id, payments) >= bill.totalPayments;
+
+/** Compute status for a bill given today's date. */
+export const getBillStatus = (bill: Bill, payments: BillPayment[], today: string = getLocalDateString()): BillStatus => {
+  if (isBillPaidOff(bill, payments)) return 'paid-off';
+  const days = daysBetween(today, bill.dueDate);
+  if (days < 0) return 'overdue';
+  if (days <= 7) return 'due-soon';
+  if (days > 30) return 'paid-ahead';
+  return 'upcoming';
 };
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

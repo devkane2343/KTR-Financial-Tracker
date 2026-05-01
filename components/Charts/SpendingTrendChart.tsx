@@ -169,16 +169,16 @@ export const SpendingTrendChart: React.FC<SpendingTrendChartProps> = ({ expenses
   }, [expenses, viewMode]);
 
   return (
-    <Card title="Spending Trend">
-      <div className="flex flex-wrap gap-2 mb-4">
+    <Card title="Spending Trend" eyebrow="Chapter · Outflow">
+      <div className="flex flex-wrap gap-1.5 mb-5">
         {(Object.keys(VIEW_LABELS) as SpendingViewMode[]).map((mode) => (
           <button
             key={mode}
             onClick={() => setViewMode(mode)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+            className={`px-3 py-1.5 rounded-full text-[11px] font-medium tracking-wide transition-all ${
               viewMode === mode
-                ? 'bg-emerald-600 text-white shadow-sm'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                ? 'bg-ink text-paper'
+                : 'bg-ink/5 text-ink-muted hover:bg-ink/10'
             }`}
           >
             {VIEW_LABELS[mode]}
@@ -188,18 +188,24 @@ export const SpendingTrendChart: React.FC<SpendingTrendChartProps> = ({ expenses
       <div className="h-[300px] w-full">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+            <defs>
+              <linearGradient id="spendingGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#b8893d" stopOpacity={0.25} />
+                <stop offset="100%" stopColor="#b8893d" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="rgba(10,13,16,0.08)" />
             <XAxis
               dataKey="period"
               axisLine={false}
               tickLine={false}
-              tick={{ fontSize: 11, fill: '#64748b' }}
+              tick={{ fontSize: 10, fill: '#5a6168', fontFamily: 'Geist' }}
               dy={10}
             />
             <YAxis
               axisLine={false}
               tickLine={false}
-              tick={{ fontSize: 11, fill: '#64748b' }}
+              tick={{ fontSize: 10, fill: '#5a6168', fontFamily: 'JetBrains Mono' }}
               tickFormatter={(val) => `₱${val}`}
             />
             <Tooltip
@@ -208,8 +214,8 @@ export const SpendingTrendChart: React.FC<SpendingTrendChartProps> = ({ expenses
                 const countLabel = count === 1 ? '1 transaction' : `${count} transactions`;
                 return [
                   <div key="tooltip-content">
-                    <div className="font-bold">{formatCurrency(value)}</div>
-                    <div className="text-xs text-slate-500">{countLabel}</div>
+                    <div className="font-mono font-medium">{formatCurrency(value)}</div>
+                    <div className="text-xs opacity-60 font-mono">{countLabel}</div>
                   </div>,
                   'Spent'
                 ];
@@ -220,15 +226,18 @@ export const SpendingTrendChart: React.FC<SpendingTrendChartProps> = ({ expenses
                 }
                 return label;
               }}
-              contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+              contentStyle={{ borderRadius: '12px', border: 'none', background: '#0a0d10', color: '#fbf8f1', fontSize: '12px', fontFamily: 'Geist', boxShadow: '0 12px 32px -16px rgba(10,13,16,0.4)' }}
+              labelStyle={{ color: '#fbf8f1', opacity: 0.6, fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.18em' }}
+              itemStyle={{ color: '#fbf8f1' }}
             />
             <Line
               type="monotone"
               dataKey="amount"
-              stroke="#10b981"
-              strokeWidth={3}
-              dot={{ r: 4, fill: '#10b981', strokeWidth: 2, stroke: '#fff' }}
-              activeDot={{ r: 6, strokeWidth: 0 }}
+              stroke="#b8893d"
+              strokeWidth={2.5}
+              dot={{ r: 3, fill: '#b8893d', strokeWidth: 2, stroke: '#fbf8f1' }}
+              activeDot={{ r: 6, strokeWidth: 2, fill: '#0a0d10', stroke: '#fbf8f1' }}
+              fill="url(#spendingGrad)"
             />
           </LineChart>
         </ResponsiveContainer>

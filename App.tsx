@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import type { User } from '@supabase/supabase-js';
-import { FinancialData, IncomeEntry, Expense, TabType } from './types';
+import { FinancialData, IncomeEntry, Expense, Bill, BillPayment, TabType } from './types';
+import { addMonths, generateId, isBillPaidOff } from './lib/utils';
 import { SummaryCards } from './components/SummaryCards';
 import { IncomeForm } from './components/IncomeForm';
 import { IncomeList } from './components/IncomeList';
@@ -12,6 +13,8 @@ import { PortfolioCard } from './components/PortfolioCard';
 import { AdminDashboard } from './components/AdminDashboard';
 import { NotificationBar } from './components/NotificationBar';
 import { AdminGuard } from './components/AdminGuard';
+import { BillForm } from './components/BillForm';
+import { BillList } from './components/BillList';
 import { PrivacyNoticeModal } from './components/PrivacyNoticeModal';
 
 const AnalyticsView = lazy(() => import('./components/AnalyticsView').then((m) => ({ default: m.AnalyticsView })));
@@ -28,7 +31,8 @@ import {
   User as UserIcon,
   ChevronDown,
   Shield,
-  Briefcase
+  Briefcase,
+  Receipt
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import { saveFinancialDataToSupabase, loadFinancialDataFromSupabase } from './lib/supabaseSave';
@@ -44,11 +48,14 @@ const App: React.FC = () => {
   const [data, setData] = useState<FinancialData>({
     incomeHistory: [],
     expenses: [],
+    bills: [],
+    billPayments: [],
   });
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [isLoaded, setIsLoaded] = useState(false);
   const [editingIncome, setEditingIncome] = useState<IncomeEntry | null>(null);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [editingBill, setEditingBill] = useState<Bill | null>(null);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const [saveError, setSaveError] = useState<string>('');
   const [saveSuccessCount, setSaveSuccessCount] = useState<{ income: number; expenses: number } | undefined>(undefined);
@@ -76,9 +83,18 @@ const App: React.FC = () => {
       if (result.idMapping) {
         const mapIncome = new Map(result.idMapping.income.map((m) => [m.oldId, m.newId]));
         const mapExpense = new Map(result.idMapping.expenses.map((m) => [m.oldId, m.newId]));
+        const mapBills = new Map(result.idMapping.bills.map((m) => [m.oldId, m.newId]));
+        const mapPayments = new Map(result.idMapping.billPayments.map((m) => [m.oldId, m.newId]));
         setData((prev) => ({
           incomeHistory: prev.incomeHistory.map((e) => (mapIncome.has(e.id) ? { ...e, id: mapIncome.get(e.id)! } : e)),
           expenses: prev.expenses.map((e) => (mapExpense.has(e.id) ? { ...e, id: mapExpense.get(e.id)! } : e)),
+          bills: prev.bills.map((b) => (mapBills.has(b.id) ? { ...b, id: mapBills.get(b.id)! } : b)),
+          billPayments: prev.billPayments.map((p) => {
+            const newId = mapPayments.get(p.id);
+            const newBillId = mapBills.get(p.billId);
+            if (!newId && !newBillId) return p;
+            return { ...p, id: newId ?? p.id, billId: newBillId ?? p.billId };
+          }),
         }));
       }
       setSaveStatus('success');
@@ -122,7 +138,11 @@ const App: React.FC = () => {
       setUser(session?.user ?? null);
       setAuthChecked(true);
     });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // Skip token refreshes — they fire when returning to the tab and
+      // would cause a full data reload + loading spinner flash.
+      // All other events (INITIAL_SESSION, SIGNED_IN, SIGNED_OUT, etc.) pass through.
+      if (event === 'TOKEN_REFRESHED') return;
       setUser(session?.user ?? null);
     });
     return () => subscription.unsubscribe();
@@ -136,9 +156,10 @@ const App: React.FC = () => {
     }
   }, [user]);
 
+  const userId = user?.id ?? null;
   useEffect(() => {
-    if (!authChecked || !user) {
-      if (!user) setIsLoaded(false);
+    if (!authChecked || !userId) {
+      if (!userId) setIsLoaded(false);
       return;
     }
     let cancelled = false;
@@ -150,60 +171,351 @@ const App: React.FC = () => {
       setIsLoaded(true);
     })();
     return () => { cancelled = true; };
-  }, [authChecked, user]);
+  }, [authChecked, userId]);
 
-  const handleAddIncome = (income: IncomeEntry) => {
-    setData(prev => ({ ...prev, incomeHistory: [income, ...prev.incomeHistory] }));
-    scheduleAutoSave();
+  const applyPaidBillsToBills = (
+    bills: Bill[],
+    payments: BillPayment[],
+    paidBills: { billId: string }[] | undefined,
+    paidOn: string,
+  ): { bills: Bill[]; payments: BillPayment[] } => {
+    if (!paidBills || paidBills.length === 0) return { bills, payments };
+    const newPayments: BillPayment[] = [];
+    const updatedBills = bills.map(bill => {
+      const match = paidBills.find(pb => pb.billId === bill.id);
+      if (!match) return bill;
+      // Skip if a payment for this bill's current dueDate already exists, or loan is paid off
+      if (payments.some(p => p.billId === bill.id && p.dueDate === bill.dueDate)) return bill;
+      if (isBillPaidOff(bill, [...newPayments, ...payments])) return bill;
+      newPayments.push({
+        id: generateId(),
+        billId: bill.id,
+        dueDate: bill.dueDate,
+        paidDate: paidOn,
+        amount: bill.amount,
+      });
+      return { ...bill, dueDate: addMonths(bill.dueDate, 1) };
+    });
+    return { bills: updatedBills, payments: [...newPayments, ...payments] };
   };
 
-  const handleUpdateIncome = (income: IncomeEntry) => {
-    setData(prev => ({
-      ...prev,
-      incomeHistory: prev.incomeHistory.map(item => item.id === income.id ? income : item)
-    }));
+  const handleAddIncome = useCallback((income: IncomeEntry) => {
+    setData(prev => {
+      const { bills, payments } = applyPaidBillsToBills(prev.bills, prev.billPayments, income.paidBills, income.date);
+      return {
+        ...prev,
+        incomeHistory: [income, ...prev.incomeHistory],
+        bills,
+        billPayments: payments,
+      };
+    });
+    scheduleAutoSave();
+  }, [scheduleAutoSave]);
+
+  const handleUpdateIncome = useCallback((income: IncomeEntry) => {
+    setData(prev => {
+      const { bills, payments } = applyPaidBillsToBills(prev.bills, prev.billPayments, income.paidBills, income.date);
+      return {
+        ...prev,
+        incomeHistory: prev.incomeHistory.map(item => item.id === income.id ? income : item),
+        bills,
+        billPayments: payments,
+      };
+    });
     setEditingIncome(null);
     scheduleAutoSave();
-  };
+  }, [scheduleAutoSave]);
 
-  const handleDeleteIncome = (id: string) => {
-    if (editingIncome?.id === id) setEditingIncome(null);
+  const handleDeleteIncome = useCallback((id: string) => {
+    setEditingIncome(prev => prev?.id === id ? null : prev);
     setData(prev => ({ ...prev, incomeHistory: prev.incomeHistory.filter(i => i.id !== id) }));
     scheduleAutoSave();
-  };
+  }, [scheduleAutoSave]);
 
-  const handleAddExpense = (expense: Expense) => {
+  const handleAddExpense = useCallback((expense: Expense) => {
     setData(prev => ({ ...prev, expenses: [expense, ...prev.expenses] }));
     scheduleAutoSave();
-  };
+  }, [scheduleAutoSave]);
 
-  const handleUpdateExpense = (expense: Expense) => {
+  const handleUpdateExpense = useCallback((expense: Expense) => {
     setData(prev => ({
       ...prev,
       expenses: prev.expenses.map(e => e.id === expense.id ? expense : e)
     }));
     setEditingExpense(null);
     scheduleAutoSave();
-  };
+  }, [scheduleAutoSave]);
 
-  const handleDeleteExpense = (id: string) => {
-    if (editingExpense?.id === id) setEditingExpense(null);
+  const handleDeleteExpense = useCallback((id: string) => {
+    setEditingExpense(prev => prev?.id === id ? null : prev);
     setData(prev => ({ ...prev, expenses: prev.expenses.filter(e => e.id !== id) }));
     scheduleAutoSave();
-  };
+  }, [scheduleAutoSave]);
+
+  const handleAddBill = useCallback((bill: Bill) => {
+    setData(prev => ({ ...prev, bills: [bill, ...prev.bills] }));
+    scheduleAutoSave();
+  }, [scheduleAutoSave]);
+
+  const handleUpdateBill = useCallback((bill: Bill) => {
+    setData(prev => ({
+      ...prev,
+      bills: prev.bills.map(b => b.id === bill.id ? bill : b)
+    }));
+    setEditingBill(null);
+    scheduleAutoSave();
+  }, [scheduleAutoSave]);
+
+  const handleDeleteBill = useCallback((id: string) => {
+    setEditingBill(prev => prev?.id === id ? null : prev);
+    setData(prev => ({
+      ...prev,
+      bills: prev.bills.filter(b => b.id !== id),
+      billPayments: prev.billPayments.filter(p => p.billId !== id),
+    }));
+    scheduleAutoSave();
+  }, [scheduleAutoSave]);
+
+  const handlePayBill = useCallback((bill: Bill, paidDate: string) => {
+    setData(prev => {
+      // Guard against double-payment for same dueDate
+      if (prev.billPayments.some(p => p.billId === bill.id && p.dueDate === bill.dueDate)) {
+        return prev;
+      }
+      // Guard against paying a finished loan
+      if (isBillPaidOff(bill, prev.billPayments)) {
+        return prev;
+      }
+      const payment: BillPayment = {
+        id: generateId(),
+        billId: bill.id,
+        dueDate: bill.dueDate,
+        paidDate,
+        amount: bill.amount,
+      };
+      return {
+        ...prev,
+        bills: prev.bills.map(b => b.id === bill.id ? { ...b, dueDate: addMonths(b.dueDate, 1) } : b),
+        billPayments: [payment, ...prev.billPayments],
+      };
+    });
+    scheduleAutoSave();
+  }, [scheduleAutoSave]);
 
   const handleSaveToSupabase = () => {
     performSave(data);
   };
 
+  const firstName = (user?.user_metadata?.full_name?.split(' ')[0]) ?? '';
+  const greetingTime = (() => {
+    const h = new Date().getHours();
+    if (h < 12) return 'Good morning';
+    if (h < 18) return 'Good afternoon';
+    return 'Good evening';
+  })();
+
+  const HeroCard = (
+    <div className="relative bg-paper rounded-3xl shadow-paper-lift overflow-hidden">
+      <div className="absolute -top-24 -right-24 w-72 h-72 rounded-full bg-jade-50/70 blur-3xl pointer-events-none" />
+      <div className="absolute -bottom-32 -left-16 w-80 h-80 rounded-full bg-gold-50/80 blur-3xl pointer-events-none" />
+      <div className="relative p-8 lg:p-10">
+        <div className="flex items-center gap-2 mb-5">
+          <span className="w-1.5 h-1.5 rounded-full bg-jade-500 animate-pulse-jade" />
+          <p className="eyebrow">Volume I · The Personal Ledger</p>
+        </div>
+        <h1 className="font-display text-4xl lg:text-5xl leading-[0.95] text-ink mb-4">
+          {greetingTime}
+          {firstName ? (
+            <>
+              ,<br />
+              <em className="text-jade-500" style={{ fontStyle: 'italic' }}>{firstName}.</em>
+            </>
+          ) : (
+            <em className="text-jade-500" style={{ fontStyle: 'italic' }}>.</em>
+          )}
+        </h1>
+        <p className="text-ink-muted text-[15px] leading-relaxed max-w-md mb-6">
+          Wealth is built quietly, in entries kept honestly. Log this week&rsquo;s pay, settle every bill on time, and watch the discipline compound.
+        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={() => setActiveTab('income')}
+            className="group relative bg-ink text-paper px-5 py-3 rounded-full text-sm font-medium flex items-center gap-2 hover:bg-jade-500 transition-all duration-300 shadow-paper"
+          >
+            <span>Log this week&rsquo;s pay</span>
+            <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
+          </button>
+          <button
+            onClick={() => setActiveTab('bills')}
+            className="text-sm text-ink-muted hover:text-ink transition-colors flex items-center gap-1.5 px-3 py-3"
+          >
+            <Receipt className="w-4 h-4" />
+            <span className="border-b border-rule">Review bills</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  const dashboardContent = useMemo(() => (
+    <div className="space-y-10 animate-fade-up">
+      {HeroCard}
+      <div>
+        <div className="flex items-baseline justify-between mb-5">
+          <p className="eyebrow">The Ledger &middot; Lifetime</p>
+          <span className="text-xs text-ink-whisper font-mono">&sum; since first entry</span>
+        </div>
+        <SummaryCards data={data} />
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <div className="lg:col-span-4">
+          <ExpenseForm
+            onAdd={handleAddExpense}
+            onUpdate={handleUpdateExpense}
+            editingExpense={editingExpense}
+            onCancelEdit={() => setEditingExpense(null)}
+          />
+        </div>
+        <div className="lg:col-span-8">
+          <ExpenseList
+            expenses={data.expenses}
+            onDelete={handleDeleteExpense}
+            onEdit={(exp) => {
+              setEditingExpense(exp);
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+          />
+        </div>
+      </div>
+    </div>
+  ), [HeroCard, data, editingExpense, handleAddExpense, handleUpdateExpense, handleDeleteExpense]);
+
+  const incomeContent = useMemo(() => (
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+       <div className="lg:col-span-3">
+          <IncomeForm
+            onAdd={handleAddIncome}
+            onUpdate={handleUpdateIncome}
+            editingEntry={editingIncome}
+            onCancelEdit={() => setEditingIncome(null)}
+            bills={data.bills}
+            payments={data.billPayments}
+          />
+       </div>
+       <div className="lg:col-span-9">
+          <IncomeList
+            history={data.incomeHistory}
+            onDelete={handleDeleteIncome}
+            onEdit={(entry) => {
+              setEditingIncome(entry);
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+          />
+       </div>
+    </div>
+  ), [data.incomeHistory, data.bills, data.billPayments, editingIncome, handleAddIncome, handleUpdateIncome, handleDeleteIncome]);
+
+  const expensesContent = useMemo(() => (
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="lg:col-span-3">
+         <ExpenseForm
+           onAdd={handleAddExpense}
+           onUpdate={handleUpdateExpense}
+           editingExpense={editingExpense}
+           onCancelEdit={() => setEditingExpense(null)}
+         />
+         <div className="mt-6 bg-white p-6 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
+            <div className="relative z-10">
+              <h3 className="font-bold text-slate-800 mb-2">Wealth Observation</h3>
+              <p className="text-sm text-slate-500">Categorize your spending to see exactly where your power is going. Savings are your ultimate defense.</p>
+            </div>
+            <img src={LOGO_URL} className="absolute -right-2 -bottom-2 w-16 h-16 opacity-5 rotate-45" alt="Deco" />
+         </div>
+      </div>
+      <div className="lg:col-span-9">
+         <ExpenseList
+           expenses={data.expenses}
+           onDelete={handleDeleteExpense}
+           onEdit={(exp) => {
+             setEditingExpense(exp);
+             window.scrollTo({ top: 0, behavior: 'smooth' });
+           }}
+         />
+      </div>
+    </div>
+  ), [data.expenses, editingExpense, handleAddExpense, handleUpdateExpense, handleDeleteExpense]);
+
+  const analyticsContent = useMemo(() => (
+    <Suspense fallback={<div className="flex items-center justify-center py-16"><span className="w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /></div>}>
+      <AnalyticsView data={data} />
+    </Suspense>
+  ), [data]);
+
+  const portfolioContent = useMemo(() => (
+    <div className="max-w-4xl mx-auto">
+      <PortfolioCard
+        onEdit={() => setActiveTab('profile')}
+        refreshTrigger={portfolioRefreshTrigger}
+      />
+    </div>
+  ), [portfolioRefreshTrigger, setActiveTab]);
+
+  const profileContent = useMemo(() => (
+    <ProfilePage
+      user={user}
+      onPortfolioSaved={() => setPortfolioRefreshTrigger(prev => prev + 1)}
+    />
+  ), [user]);
+
+  const billsContent = useMemo(() => (
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="lg:col-span-3">
+        <BillForm
+          onAdd={handleAddBill}
+          onUpdate={handleUpdateBill}
+          editingBill={editingBill}
+          onCancelEdit={() => setEditingBill(null)}
+        />
+      </div>
+      <div className="lg:col-span-9">
+        <BillList
+          bills={data.bills}
+          payments={data.billPayments}
+          onDelete={handleDeleteBill}
+          onEdit={(bill) => {
+            setEditingBill(bill);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+          onPay={handlePayBill}
+        />
+      </div>
+    </div>
+  ), [data.bills, data.billPayments, editingBill, handleAddBill, handleUpdateBill, handleDeleteBill, handlePayBill]);
+
+  const adminContent = useMemo(() => (
+    <AdminGuard>
+      <AdminDashboard />
+    </AdminGuard>
+  ), []);
+
   if (!authChecked || (user && !isLoaded)) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div>
-          <p className="text-slate-600 font-medium animate-pulse">
-            {!authChecked ? 'Checking auth…' : 'Loading your data…'}
-          </p>
+      <div className="min-h-screen bg-paper flex items-center justify-center relative">
+        <div className="flex flex-col items-center gap-6 relative z-10">
+          <div className="relative">
+            <div className="w-12 h-12 border-2 border-ink/15 border-t-jade-500 rounded-full animate-spin"></div>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="w-1.5 h-1.5 bg-gold-400 rounded-full animate-pulse" />
+            </div>
+          </div>
+          <div className="text-center">
+            <p className="font-display italic text-2xl text-ink mb-1">
+              {!authChecked ? 'Verifying' : 'Gathering'}
+            </p>
+            <p className="eyebrow">
+              {!authChecked ? 'Your credentials' : 'Your ledger'}
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -216,6 +528,7 @@ const App: React.FC = () => {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
     { id: 'income', label: 'Income', icon: <History className="w-4 h-4" /> },
+    { id: 'bills', label: 'Bills', icon: <Receipt className="w-4 h-4" /> },
     { id: 'expenses', label: 'Expenses', icon: <ReceiptText className="w-4 h-4" /> },
     { id: 'analytics', label: 'Analytics', icon: <ChartIcon className="w-4 h-4" /> },
     { id: 'portfolio', label: 'Portfolio', icon: <Briefcase className="w-4 h-4" /> },
@@ -223,71 +536,89 @@ const App: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-20 sm:pb-12">
+    <div className="min-h-screen bg-paper pb-24 sm:pb-12 relative">
       {/* Privacy Notice Modal */}
       <PrivacyNoticeModal isOpen={showPrivacyNotice} onAccept={handlePrivacyAccept} />
-      
+
       {/* Navigation Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
-        <div className="max-w-[90rem] mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3 cursor-pointer group" onClick={() => setActiveTab('dashboard')}>
-            <div className="w-9 h-9 flex items-center justify-center transition-transform group-hover:rotate-180 duration-700">
-              <img src={LOGO_URL} className="w-full h-full object-contain" alt="KTR Logo" />
+      <header className="bg-paper/80 backdrop-blur-md border-b border-rule sticky top-0 z-40">
+        <div className="max-w-[92rem] mx-auto px-5 sm:px-8 lg:px-10 h-[68px] flex items-center justify-between gap-6">
+          <div className="flex items-center gap-3 cursor-pointer group shrink-0" onClick={() => setActiveTab('dashboard')}>
+            <div className="relative w-9 h-9 flex items-center justify-center">
+              <div className="absolute inset-0 rounded-full bg-jade-500/8 group-hover:bg-jade-500/15 transition-colors" />
+              <img src={LOGO_URL} className="w-7 h-7 object-contain relative" alt="KTR" />
             </div>
-            <h1 className="text-xl font-bold text-slate-900 tracking-tight">KTR - Financial Tracker</h1>
+            <div className="flex flex-col leading-none">
+              <span className="font-display text-[17px] text-ink tracking-tight">KTR <em className="not-italic text-jade-500">/</em> Financial Journal</span>
+              <span className="eyebrow text-[9px] mt-1">An ongoing record of discipline</span>
+            </div>
           </div>
-          
-          <nav className="hidden md:flex items-center gap-1">
-            {navItems.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => setActiveTab(item.id as TabType)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                  activeTab === item.id 
-                  ? 'bg-red-50 text-red-700' 
-                  : 'text-slate-500 hover:text-red-600 hover:bg-slate-50'
-                }`}
-              >
-                {item.icon}
-                {item.label}
-              </button>
-            ))}
+
+          <nav className="hidden md:flex items-center gap-1 mx-auto">
+            {navItems.map((item) => {
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id as TabType)}
+                  className={`relative flex items-center gap-2 px-3.5 py-2 rounded-full text-[13px] font-medium transition-all ${
+                    isActive
+                      ? 'text-paper'
+                      : 'text-ink-muted hover:text-ink'
+                  }`}
+                >
+                  {isActive && (
+                    <span className="absolute inset-0 bg-ink rounded-full -z-0" />
+                  )}
+                  <span className="relative z-10 flex items-center gap-2">
+                    {item.icon}
+                    {item.label}
+                  </span>
+                </button>
+              );
+            })}
           </nav>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <NotificationBar />
-            
+
             <button
               onClick={handleSaveToSupabase}
               disabled={saveStatus === 'saving'}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed transition-all shadow-sm"
+              className={`relative flex items-center gap-2 px-3.5 py-2 rounded-full text-[13px] font-medium transition-all overflow-hidden ${
+                saveStatus === 'success'
+                  ? 'bg-jade-50 text-jade-600 border border-jade-100'
+                  : saveStatus === 'error'
+                  ? 'bg-coral-50 text-coral-600 border border-coral-100'
+                  : 'bg-ink/5 text-ink hover:bg-ink/10 border border-rule'
+              } disabled:opacity-60 disabled:cursor-not-allowed`}
               title="Save now (changes auto-save after 1.5s)"
             >
               {saveStatus === 'saving' && (
                 <>
-                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span className="hidden sm:inline">Saving…</span>
+                  <span className="w-3.5 h-3.5 border-[1.5px] border-ink/30 border-t-jade-500 rounded-full animate-spin" />
+                  <span className="hidden sm:inline">Saving</span>
                 </>
               )}
               {saveStatus === 'success' && (
                 <>
-                  <Check className="w-4 h-4" />
+                  <Check className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">
                     {saveSuccessCount && (saveSuccessCount.income > 0 || saveSuccessCount.expenses > 0)
-                      ? `Saved ${saveSuccessCount.income} income, ${saveSuccessCount.expenses} expenses`
-                      : 'Saved'}
+                      ? `Filed ${saveSuccessCount.income}+${saveSuccessCount.expenses}`
+                      : 'Filed'}
                   </span>
                 </>
               )}
               {(saveStatus === 'idle' || saveStatus === 'error') && (
                 <>
-                  <Save className="w-4 h-4" />
-                  <span className="hidden sm:inline">Save to cloud</span>
+                  <Save className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">File entry</span>
                 </>
               )}
             </button>
             {saveStatus === 'error' && saveError && (
-              <span className="flex items-center gap-1 text-xs text-red-600 max-w-[180px] sm:max-w-[280px] truncate" title={saveError}>
+              <span className="hidden lg:flex items-center gap-1 text-xs text-coral-500 max-w-[280px] truncate" title={saveError}>
                 <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                 {saveError}
               </span>
@@ -297,45 +628,45 @@ const App: React.FC = () => {
             <div className="relative" ref={profileDropdownRef}>
               <button
                 onClick={() => setIsProfileDropdownOpen(!isProfileDropdownOpen)}
-                className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-100 transition-all"
+                className="flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-full hover:bg-ink/5 transition-all"
                 title={user.email ?? undefined}
               >
-                <div className="h-8 w-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden">
+                <div className="h-8 w-8 rounded-full bg-paper-soft border border-rule flex items-center justify-center overflow-hidden">
                   {getProfilePictureUrl(user) ? (
                     <img src={getProfilePictureUrl(user)!} className="w-full h-full object-cover" alt="Profile" />
                   ) : (
-                    <img src={LOGO_URL} className="w-6 h-6 opacity-50" alt="KTR" />
+                    <span className="font-display text-sm text-ink">{(firstName || user.email || '?').charAt(0).toUpperCase()}</span>
                   )}
                 </div>
-                <ChevronDown className={`w-4 h-4 text-slate-600 transition-transform ${isProfileDropdownOpen ? 'rotate-180' : ''}`} />
+                <ChevronDown className={`w-3.5 h-3.5 text-ink-muted transition-transform ${isProfileDropdownOpen ? 'rotate-180' : ''}`} />
               </button>
 
               {isProfileDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-slate-200 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
-                  <div className="px-4 py-2 border-b border-slate-200">
-                    <p className="text-sm font-semibold text-slate-900">
-                      {user?.user_metadata?.full_name || 'User'}
+                <div className="absolute right-0 mt-3 w-64 bg-paper rounded-2xl shadow-paper-lift py-2 z-50 animate-fade-up overflow-hidden">
+                  <div className="px-4 py-3 border-b border-rule">
+                    <p className="font-display text-lg text-ink leading-tight">
+                      {user?.user_metadata?.full_name || 'Reader'}
                     </p>
-                    <p className="text-xs text-slate-500 truncate">{user.email}</p>
+                    <p className="text-xs text-ink-muted font-mono truncate mt-0.5">{user.email}</p>
                   </div>
-                  
+
                   <button
                     onClick={() => {
                       setActiveTab('profile');
                       setIsProfileDropdownOpen(false);
                     }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-ink hover:bg-ink/5 transition-colors"
                   >
-                    <UserIcon className="w-4 h-4" />
-                    Profile
+                    <UserIcon className="w-4 h-4 text-ink-muted" />
+                    Profile &amp; portfolio
                   </button>
-                  
+
                   <button
                     onClick={() => supabase.auth.signOut()}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-coral-500 hover:bg-coral-50/60 transition-colors"
                   >
                     <LogOut className="w-4 h-4" />
-                    Logout
+                    Sign out
                   </button>
                 </div>
               )}
@@ -345,198 +676,74 @@ const App: React.FC = () => {
       </header>
 
       {/* Mobile Bottom Navigation */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-2 py-2 flex justify-around items-center z-50 shadow-lg">
+      <nav className="md:hidden fixed bottom-3 left-3 right-3 bg-ink/95 backdrop-blur-md text-paper rounded-full px-2 py-1.5 flex justify-around items-center z-50 shadow-paper-lift">
         {navItems.map((item) => (
           <button
             key={item.id}
             onClick={() => setActiveTab(item.id as TabType)}
-            className={`flex flex-col items-center gap-1 px-2 py-2 rounded-lg transition-all min-w-0 ${
-              activeTab === item.id ? 'text-red-600 bg-red-50' : 'text-slate-400'
+            className={`flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-full transition-all min-w-0 ${
+              activeTab === item.id ? 'bg-paper/15 text-paper' : 'text-paper/55'
             }`}
           >
             {item.icon}
-            <span className="text-[10px] font-medium truncate max-w-[60px]">{item.label}</span>
+            <span className="text-[9px] font-medium tracking-wide truncate max-w-[58px]">{item.label}</span>
           </button>
         ))}
       </nav>
 
-      <main className="max-w-[90rem] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        
+      <main className="max-w-[92rem] mx-auto px-5 sm:px-8 lg:px-10 py-10 relative">
+
         {/* Dashboard View */}
-        <div className={activeTab === 'dashboard' ? 'block space-y-8' : 'hidden'} aria-hidden={activeTab !== 'dashboard'}>
-          <div className="space-y-8">
-            {/* Welcome Message - Shows on top for mobile */}
-            <div className="lg:hidden">
-              <div className="bg-gradient-to-br from-emerald-100 to-white rounded-xl p-6 text-slate-800 shadow-xl shadow-slate-200 relative overflow-hidden">
-                <div className="relative z-10">
-                  <h3 className="text-lg font-bold mb-2">
-                    {user?.user_metadata?.full_name
-                      ? `Welcome, ${user.user_metadata.full_name}`
-                      : 'Welcome'}
-                  </h3>
-                  <p className="text-slate-600 text-sm mb-4">Observe every flow of your currency with precision. Log your salary history to unlock full insights.</p>
-                  <button 
-                    onClick={() => setActiveTab('income')}
-                    className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-red-700 transition-colors shadow-lg shadow-red-900/20"
-                  >
-                    Log Paycheck <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
-                <img 
-                  src={LOGO_URL} 
-                  className="absolute -right-6 -bottom-6 w-40 h-40 opacity-10 rotate-12 pointer-events-none" 
-                  alt="Watermark" 
-                />
-              </div>
-            </div>
-
-            <div>
-              <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">Financial Overview</h2>
-              <SummaryCards data={data} />
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-              <div className="lg:col-span-3 space-y-6">
-                 {/* Welcome Message - Shows in sidebar for desktop */}
-                 <div className="hidden lg:block bg-gradient-to-br from-emerald-100 to-white rounded-xl p-6 text-slate-800 shadow-xl shadow-slate-200 relative overflow-hidden">
-                    <div className="relative z-10">
-                      <h3 className="text-lg font-bold mb-2">
-                        {user?.user_metadata?.full_name
-                          ? `Welcome, ${user.user_metadata.full_name}`
-                          : 'Welcome'}
-                      </h3>
-                      <p className="text-slate-600 text-sm mb-4">Observe every flow of your currency with precision. Log your salary history to unlock full insights.</p>
-                      <button 
-                        onClick={() => setActiveTab('income')}
-                        className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-red-700 transition-colors shadow-lg shadow-red-900/20"
-                      >
-                        Log Paycheck <ChevronRight className="w-4 h-4" />
-                      </button>
-                    </div>
-                    <img 
-                      src={LOGO_URL} 
-                      className="absolute -right-6 -bottom-6 w-40 h-40 opacity-10 rotate-12 pointer-events-none" 
-                      alt="Watermark" 
-                    />
-                 </div>
-                 <ExpenseForm
-                   onAdd={handleAddExpense}
-                   onUpdate={handleUpdateExpense}
-                   editingExpense={editingExpense}
-                   onCancelEdit={() => setEditingExpense(null)}
-                 />
-              </div>
-              <div className="lg:col-span-9">
-                 <ExpenseList
-                   expenses={data.expenses}
-                   onDelete={handleDeleteExpense}
-                   onEdit={(exp) => {
-                     setEditingExpense(exp);
-                     window.scrollTo({ top: 0, behavior: 'smooth' });
-                   }}
-                 />
-              </div>
-            </div>
-          </div>
+        <div className={activeTab === 'dashboard' ? 'space-y-8' : 'invisible absolute left-0 right-0 h-0 overflow-hidden pointer-events-none'} aria-hidden={activeTab !== 'dashboard'}>
+          {dashboardContent}
         </div>
 
         {/* Income View */}
-        <div className={activeTab === 'income' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'income'}>
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-             <div className="lg:col-span-3">
-                <IncomeForm 
-                  onAdd={handleAddIncome} 
-                  onUpdate={handleUpdateIncome}
-                  editingEntry={editingIncome}
-                  onCancelEdit={() => setEditingIncome(null)}
-                />
-             </div>
-             <div className="lg:col-span-9">
-                <IncomeList 
-                  history={data.incomeHistory} 
-                  onDelete={handleDeleteIncome} 
-                  onEdit={(entry) => {
-                    setEditingIncome(entry);
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
-                  }}
-                />
-             </div>
-          </div>
+        <div className={activeTab === 'income' ? '' : 'invisible absolute left-0 right-0 h-0 overflow-hidden pointer-events-none'} aria-hidden={activeTab !== 'income'}>
+          {incomeContent}
+        </div>
+
+        {/* Bills View */}
+        <div className={activeTab === 'bills' ? '' : 'invisible absolute left-0 right-0 h-0 overflow-hidden pointer-events-none'} aria-hidden={activeTab !== 'bills'}>
+          {billsContent}
         </div>
 
         {/* Expenses View */}
-        <div className={activeTab === 'expenses' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'expenses'}>
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            <div className="lg:col-span-3">
-               <ExpenseForm
-                 onAdd={handleAddExpense}
-                 onUpdate={handleUpdateExpense}
-                 editingExpense={editingExpense}
-                 onCancelEdit={() => setEditingExpense(null)}
-               />
-               <div className="mt-6 bg-white p-6 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-                  <div className="relative z-10">
-                    <h3 className="font-bold text-slate-800 mb-2">Wealth Observation</h3>
-                    <p className="text-sm text-slate-500">Categorize your spending to see exactly where your power is going. Savings are your ultimate defense.</p>
-                  </div>
-                  <img src={LOGO_URL} className="absolute -right-2 -bottom-2 w-16 h-16 opacity-5 rotate-45" alt="Deco" />
-               </div>
-            </div>
-            <div className="lg:col-span-9">
-               <ExpenseList
-                 expenses={data.expenses}
-                 onDelete={handleDeleteExpense}
-                 onEdit={(exp) => {
-                   setEditingExpense(exp);
-                   window.scrollTo({ top: 0, behavior: 'smooth' });
-                 }}
-               />
-            </div>
-          </div>
+        <div className={activeTab === 'expenses' ? '' : 'invisible absolute left-0 right-0 h-0 overflow-hidden pointer-events-none'} aria-hidden={activeTab !== 'expenses'}>
+          {expensesContent}
         </div>
 
         {/* Analytics View (lazy-loaded with recharts) */}
-        <div className={activeTab === 'analytics' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'analytics'}>
-          <Suspense fallback={<div className="flex items-center justify-center py-16"><span className="w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /></div>}>
-            <AnalyticsView data={data} />
-          </Suspense>
+        <div className={activeTab === 'analytics' ? '' : 'invisible absolute left-0 right-0 h-0 overflow-hidden pointer-events-none'} aria-hidden={activeTab !== 'analytics'}>
+          {analyticsContent}
         </div>
 
         {/* Portfolio View - Display/Showcase */}
-        <div className={activeTab === 'portfolio' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'portfolio'}>
-          <div className="max-w-4xl mx-auto">
-            <PortfolioCard 
-              onEdit={() => setActiveTab('profile')} 
-              refreshTrigger={portfolioRefreshTrigger}
-            />
-          </div>
+        <div className={activeTab === 'portfolio' ? '' : 'invisible absolute left-0 right-0 h-0 overflow-hidden pointer-events-none'} aria-hidden={activeTab !== 'portfolio'}>
+          {portfolioContent}
         </div>
 
         {/* Profile View - Settings & Editor */}
-        <div className={activeTab === 'profile' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'profile'}>
-          <ProfilePage 
-            user={user} 
-            onPortfolioSaved={() => setPortfolioRefreshTrigger(prev => prev + 1)}
-          />
+        <div className={activeTab === 'profile' ? '' : 'invisible absolute left-0 right-0 h-0 overflow-hidden pointer-events-none'} aria-hidden={activeTab !== 'profile'}>
+          {profileContent}
         </div>
 
         {/* Admin View */}
-        <div className={activeTab === 'admin' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'admin'}>
-          <AdminGuard>
-            <AdminDashboard />
-          </AdminGuard>
+        <div className={activeTab === 'admin' ? '' : 'invisible absolute left-0 right-0 h-0 overflow-hidden pointer-events-none'} aria-hidden={activeTab !== 'admin'}>
+          {adminContent}
         </div>
 
       </main>
 
-      <footer className="max-w-[90rem] mx-auto px-4 sm:px-6 lg:px-8 py-6 border-t border-slate-200 text-center">
-        <div className="flex items-center justify-center gap-2 mb-2">
-           <img src={LOGO_URL} className="w-4 h-4 opacity-40" alt="Footer Logo" />
-           <p className="text-sm text-slate-500 font-medium">KTR - Finance Tracker</p>
+      <footer className="max-w-[92rem] mx-auto px-5 sm:px-8 lg:px-10 pt-12 pb-8 mt-16">
+        <div className="hairline mb-6" />
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5">
+            <img src={LOGO_URL} className="w-4 h-4 opacity-50" alt="" />
+            <p className="font-display text-sm text-ink">KTR <em className="not-italic text-jade-500">/</em> Financial Journal</p>
+          </div>
+          <p className="eyebrow text-[9px]">Encrypted &middot; Yours alone &middot; Built with discipline</p>
         </div>
-        <p className="text-xs text-slate-400">
-           &bull; Secured with Supabase Auth &bull; Your data stays in your account &bull;
-        </p>
       </footer>
     </div>
   );

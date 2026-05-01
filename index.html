@@ -4,30 +4,213 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KTR - Financial Tracker</title>
+    <title>KTR — Financial Journal</title>
     <link rel="icon" type="image/png" href="/logo.png">
     <script src="https://cdn.tailwindcss.com"></script>
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..900,0..100;1,9..144,300..900,0..100&family=Geist:wght@300..700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              display: ['"Fraunces"', 'serif'],
+              sans: ['"Geist"', 'system-ui', 'sans-serif'],
+              mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+            },
+            colors: {
+              paper: {
+                DEFAULT: '#fbf8f1',
+                soft: '#f4ede0',
+                deep: '#ede4d1',
+              },
+              ink: {
+                DEFAULT: '#0a0d10',
+                soft: '#2c3338',
+                muted: '#5a6168',
+                whisper: '#8a9097',
+              },
+              jade: {
+                50:  '#e8f0ec',
+                100: '#cfe0d6',
+                200: '#9fc1ad',
+                300: '#6fa285',
+                400: '#3f835c',
+                500: '#0e5544',
+                600: '#0b4537',
+                700: '#08362b',
+                800: '#06281f',
+                900: '#031913',
+              },
+              gold: {
+                50:  '#faf3e3',
+                100: '#f3e7cc',
+                200: '#e8d099',
+                300: '#dab866',
+                400: '#c9a449',
+                500: '#b8893d',
+                600: '#946d31',
+                700: '#705225',
+              },
+              coral: {
+                50:  '#fbe9e3',
+                100: '#f5d2c5',
+                400: '#d97155',
+                500: '#c4543a',
+                600: '#a3422c',
+              },
+              rule: 'rgba(10,13,16,0.08)',
+            },
+            boxShadow: {
+              'paper': '0 1px 0 rgba(10,13,16,0.04), 0 0 0 1px rgba(10,13,16,0.04)',
+              'paper-lift': '0 1px 0 rgba(10,13,16,0.05), 0 12px 32px -16px rgba(10,13,16,0.18), 0 0 0 1px rgba(10,13,16,0.05)',
+              'ring-jade': '0 0 0 4px rgba(14,85,68,0.12)',
+              'ring-gold': '0 0 0 4px rgba(184,137,61,0.18)',
+            },
+            keyframes: {
+              'fade-up': {
+                '0%':   { opacity: '0', transform: 'translateY(8px)' },
+                '100%': { opacity: '1', transform: 'translateY(0)' },
+              },
+              'fade-in': { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+              'count-pop': {
+                '0%':   { transform: 'scale(0.96)', opacity: '0.6' },
+                '60%':  { transform: 'scale(1.02)' },
+                '100%': { transform: 'scale(1)', opacity: '1' },
+              },
+              'sheen': {
+                '0%':   { transform: 'translateX(-120%) skewX(-20deg)' },
+                '100%': { transform: 'translateX(220%) skewX(-20deg)' },
+              },
+              'pulse-jade': {
+                '0%, 100%': { boxShadow: '0 0 0 0 rgba(14,85,68,0.45)' },
+                '50%':      { boxShadow: '0 0 0 14px rgba(14,85,68,0)' },
+              },
+            },
+            animation: {
+              'fade-up': 'fade-up 600ms cubic-bezier(0.2,0.8,0.2,1) both',
+              'fade-in': 'fade-in 600ms ease-out both',
+              'count-pop': 'count-pop 500ms cubic-bezier(0.2,0.8,0.2,1) both',
+              'sheen': 'sheen 1400ms ease-out',
+              'pulse-jade': 'pulse-jade 2000ms cubic-bezier(0.4,0,0.6,1) infinite',
+            },
+          },
+        },
+      };
+    </script>
+
     <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f8fafc;
-        }
-        ::-webkit-scrollbar {
-            width: 8px;
-        }
-        ::-webkit-scrollbar-track {
-            background: #f1f1f1;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #cbd5e1;
-            border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #94a3b8;
-        }
+      :root {
+        --paper: #fbf8f1;
+        --paper-soft: #f4ede0;
+        --ink: #0a0d10;
+        --jade: #0e5544;
+        --gold: #b8893d;
+        --coral: #c4543a;
+      }
+
+      html, body {
+        background-color: var(--paper);
+        color: var(--ink);
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+        font-family: 'Geist', system-ui, sans-serif;
+        font-feature-settings: 'ss01' on, 'cv11' on;
+      }
+
+      /* Subtle paper grain — adds warmth without noise */
+      body::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+        opacity: 0.35;
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.04 0 0 0 0 0.05 0 0 0 0 0.06 0 0 0 0.06 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+      }
+
+      /* Display headings */
+      .font-display {
+        font-family: 'Fraunces', serif;
+        font-variation-settings: 'opsz' 144, 'SOFT' 50;
+        letter-spacing: -0.01em;
+      }
+
+      /* Tabular monospace for currency — locks numerals to a grid */
+      .num,
+      .font-mono {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-variant-numeric: tabular-nums;
+        font-feature-settings: 'tnum' on, 'zero' on;
+      }
+
+      /* Editorial small-caps section labels */
+      .eyebrow {
+        font-family: 'Geist', sans-serif;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: rgba(10,13,16,0.55);
+      }
+
+      /* Hairline rule */
+      .hairline {
+        background-image: linear-gradient(to right, transparent, rgba(10,13,16,0.18), transparent);
+        height: 1px;
+      }
+
+      /* Custom scrollbar — slim, paper-toned */
+      ::-webkit-scrollbar { width: 8px; height: 8px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb {
+        background: rgba(10,13,16,0.12);
+        border-radius: 999px;
+      }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(10,13,16,0.24); }
+
+      /* Selection */
+      ::selection { background: rgba(14,85,68,0.18); color: #0a0d10; }
+
+      /* Inputs — calmer focus ring */
+      input, select, textarea {
+        font-family: 'Geist', system-ui, sans-serif;
+      }
+      input[type="date"]::-webkit-calendar-picker-indicator {
+        opacity: 0.5;
+        cursor: pointer;
+      }
+      input[type="number"]::-webkit-outer-spin-button,
+      input[type="number"]::-webkit-inner-spin-button {
+        -webkit-appearance: none; margin: 0;
+      }
+      input[type="number"] { -moz-appearance: textfield; }
+
+      /* Stagger helper — apply animation-delay via inline style */
+      .stagger { opacity: 0; }
+
+      /* Sheen overlay — for hero accents */
+      .sheen {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        pointer-events: none;
+        border-radius: inherit;
+      }
+      .sheen::after {
+        content: '';
+        position: absolute;
+        top: 0; bottom: 0;
+        width: 30%;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
+      }
+
+      /* Recharts text override — lock to Geist + tabular */
+      .recharts-text { font-family: 'Geist', system-ui, sans-serif; }
+      .recharts-tooltip-wrapper { outline: none; }
     </style>
 <script type="importmap">
 {

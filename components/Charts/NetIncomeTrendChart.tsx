@@ -328,7 +328,7 @@ export const NetIncomeTrendChart: React.FC<NetIncomeTrendChartProps> = ({ data }
   }, [data, viewMode]);
 
   return (
-    <Card title="Net Income Over Time">
+    <Card title="Net Income Over Time" eyebrow="Chapter · Inflow">
       <div className="flex flex-wrap gap-2 mb-4">
         {(Object.keys(VIEW_LABELS) as NetIncomeViewMode[]).map((mode) => (
           <button
@@ -336,8 +336,8 @@ export const NetIncomeTrendChart: React.FC<NetIncomeTrendChartProps> = ({ data }
             onClick={() => setViewMode(mode)}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
               viewMode === mode
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                ? 'bg-ink text-paper shadow-paper'
+                : 'bg-ink/5 text-ink-muted hover:bg-ink/10'
             }`}
           >
             {VIEW_LABELS[mode]}
@@ -347,18 +347,18 @@ export const NetIncomeTrendChart: React.FC<NetIncomeTrendChartProps> = ({ data }
       <div className="h-[300px] w-full">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+            <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="rgba(10,13,16,0.08)" />
             <XAxis
               dataKey="period"
               axisLine={false}
               tickLine={false}
-              tick={{ fontSize: 11, fill: '#64748b' }}
+              tick={{ fontSize: 10, fill: '#5a6168', fontFamily: 'Geist' }}
               dy={10}
             />
             <YAxis
               axisLine={false}
               tickLine={false}
-              tick={{ fontSize: 11, fill: '#64748b' }}
+              tick={{ fontSize: 10, fill: '#5a6168', fontFamily: 'JetBrains Mono' }}
               tickFormatter={(val) => `₱${val}`}
             />
             <Tooltip
@@ -383,7 +383,7 @@ export const NetIncomeTrendChart: React.FC<NetIncomeTrendChartProps> = ({ data }
                 return [
                   <div key={`tooltip-${name}`}>
                     <div className="font-bold">{formatCurrency(value)}</div>
-                    {countLabel && <div className="text-xs text-slate-500">{countLabel}</div>}
+                    {countLabel && <div className="text-xs text-ink-muted font-mono">{countLabel}</div>}
                   </div>,
                   label
                 ];
@@ -394,23 +394,25 @@ export const NetIncomeTrendChart: React.FC<NetIncomeTrendChartProps> = ({ data }
                 }
                 return label;
               }}
-              contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+              contentStyle={{ borderRadius: '12px', border: 'none', background: '#0a0d10', color: '#fbf8f1', fontFamily: 'Geist', fontSize: '12px', boxShadow: '0 12px 32px -16px rgba(10,13,16,0.4)' }}
+              labelStyle={{ color: '#fbf8f1', opacity: 0.7, fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.18em' }}
+              itemStyle={{ color: '#fbf8f1' }}
             />
-            <Bar dataKey="netIncome" name="netIncome" fill="#10b981" radius={[4, 4, 0, 0]} barSize={24} />
-            <Bar dataKey="expenses" name="expenses" fill="#f59e0b" radius={[4, 4, 0, 0]} barSize={24} />
-            <Bar dataKey="net" name="net" fill="#6366f1" radius={[4, 4, 0, 0]} barSize={24} />
+            <Bar dataKey="netIncome" name="netIncome" fill="#0e5544" radius={[6, 6, 0, 0]} barSize={22} />
+            <Bar dataKey="expenses" name="expenses" fill="#b8893d" radius={[6, 6, 0, 0]} barSize={22} />
+            <Bar dataKey="net" name="net" fill="#0a0d10" radius={[6, 6, 0, 0]} barSize={22} />
           </BarChart>
         </ResponsiveContainer>
       </div>
-      <div className="mt-3 flex flex-wrap gap-4 text-xs">
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-sm bg-emerald-500" /> Net Income
+      <div className="mt-4 flex flex-wrap gap-5 text-[11px] text-ink-muted">
+        <span className="flex items-center gap-2">
+          <span className="w-2.5 h-2.5 rounded-sm bg-jade-500" /> Net Income
         </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-sm bg-amber-500" /> Expenses
+        <span className="flex items-center gap-2">
+          <span className="w-2.5 h-2.5 rounded-sm bg-gold-500" /> Expenses
         </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-sm bg-indigo-500" /> Net (Income − Expenses)
+        <span className="flex items-center gap-2">
+          <span className="w-2.5 h-2.5 rounded-sm bg-ink" /> Surplus / Deficit
         </span>
       </div>
     </Card>

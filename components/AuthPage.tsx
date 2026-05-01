@@ -73,64 +73,103 @@ export const AuthPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <div className="flex flex-col items-center mb-8">
-          <div className="border-4 border-slate-200 p-2 rounded-full shadow-lg w-24 h-24 flex items-center justify-center mb-4 bg-white">
-            <img src={LOGO_URL} className="w-full h-full object-contain" alt="KTR Logo" />
+    <div className="min-h-screen bg-paper flex flex-col lg:flex-row relative overflow-hidden">
+      {/* Editorial cover panel */}
+      <div className="lg:w-1/2 relative bg-ink text-paper p-10 lg:p-16 flex flex-col justify-between min-h-[40vh] lg:min-h-screen overflow-hidden">
+        <div className="absolute -top-32 -right-32 w-96 h-96 rounded-full bg-jade-500/20 blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-40 -left-20 w-[28rem] h-[28rem] rounded-full bg-gold-500/15 blur-3xl pointer-events-none" />
+
+        <div className="relative z-10 flex items-center gap-3">
+          <img src={LOGO_URL} className="w-9 h-9 object-contain" alt="" />
+          <div>
+            <p className="font-display text-lg leading-none">KTR <em className="not-italic text-jade-200">/</em> Financial Journal</p>
+            <p className="eyebrow text-paper/45 mt-1">Volume I &middot; The Personal Ledger</p>
           </div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">KTR Financial Tracker</h1>
-          <p className="text-slate-500 text-sm mt-1">Sign in to your account</p>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xl shadow-slate-200/50 overflow-hidden">
+        <div className="relative z-10 my-12 lg:my-0">
+          <p className="eyebrow text-gold-300 mb-4">Foreword</p>
+          <h1 className="font-display text-4xl lg:text-6xl leading-[0.92] tracking-tight">
+            Wealth is built<br />
+            <em className="text-gold-300" style={{ fontStyle: 'italic' }}>quietly,</em><br />
+            in entries kept<br />
+            <em className="text-jade-200" style={{ fontStyle: 'italic' }}>honestly.</em>
+          </h1>
+          <p className="text-paper/65 text-base lg:text-lg leading-relaxed max-w-md mt-8">
+            Log every paycheck. Settle every bill. Watch the discipline compound — a private journal of your financial year.
+          </p>
+        </div>
+
+        <div className="relative z-10 grid grid-cols-3 gap-4 max-w-md">
+          <div>
+            <p className="font-display text-2xl text-paper">7</p>
+            <p className="eyebrow text-paper/45 text-[9px]">Categories tracked</p>
+          </div>
+          <div>
+            <p className="font-display text-2xl text-paper">∞</p>
+            <p className="eyebrow text-paper/45 text-[9px]">Months archived</p>
+          </div>
+          <div>
+            <p className="font-display text-2xl text-paper">100%</p>
+            <p className="eyebrow text-paper/45 text-[9px]">Yours alone</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Auth panel */}
+      <div className="lg:w-1/2 flex items-center justify-center p-6 lg:p-12 relative">
+        <div className="w-full max-w-md">
+          <div className="mb-8">
+            <p className="eyebrow mb-2">Section &middot; Access</p>
+            <h2 className="font-display text-3xl lg:text-4xl text-ink leading-tight">
+              {mode === 'signup' ? 'Begin your journal.' : mode === 'forgot-password' ? 'Recover your access.' : 'Welcome back.'}
+            </h2>
+            {mode !== 'forgot-password' && (
+              <p className="text-ink-muted text-sm mt-2 leading-relaxed">
+                {mode === 'signup' ? 'Create an account to start your private financial record.' : 'Continue keeping the ledger.'}
+              </p>
+            )}
+          </div>
+
           {mode !== 'forgot-password' && (
-            <div className="flex border-b border-slate-200">
+            <div className="flex gap-1 mb-6 p-1 bg-ink/5 rounded-full w-fit">
               <button
                 type="button"
                 onClick={() => { setMode('signin'); clearMessage(); }}
-                className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium transition-colors ${
-                  mode === 'signin' ? 'bg-red-50 text-red-700 border-b-2 border-red-600' : 'text-slate-500 hover:bg-slate-50'
+                className={`px-4 py-1.5 text-xs font-medium rounded-full transition-all flex items-center gap-1.5 ${
+                  mode === 'signin' ? 'bg-ink text-paper' : 'text-ink-muted hover:text-ink'
                 }`}
               >
-                <LogIn className="w-4 h-4" />
+                <LogIn className="w-3.5 h-3.5" />
                 Sign in
               </button>
               <button
                 type="button"
                 onClick={() => { setMode('signup'); clearMessage(); }}
-                className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium transition-colors ${
-                  mode === 'signup' ? 'bg-red-50 text-red-700 border-b-2 border-red-600' : 'text-slate-500 hover:bg-slate-50'
+                className={`px-4 py-1.5 text-xs font-medium rounded-full transition-all flex items-center gap-1.5 ${
+                  mode === 'signup' ? 'bg-ink text-paper' : 'text-ink-muted hover:text-ink'
                 }`}
               >
-                <UserPlus className="w-4 h-4" />
+                <UserPlus className="w-3.5 h-3.5" />
                 Sign up
               </button>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-5">
             {mode === 'forgot-password' && (
-              <div className="mb-4">
-                <button
-                  type="button"
-                  onClick={() => { setMode('signin'); clearMessage(); }}
-                  className="text-sm text-slate-600 hover:text-red-600 transition-colors"
-                >
-                  ← Back to sign in
-                </button>
-                <h3 className="text-lg font-bold text-slate-900 mt-2 mb-1">Reset Password</h3>
-                <p className="text-sm text-slate-600">
-                  Enter your email and we&apos;ll send you a link to reset your password.
-                </p>
-              </div>
+              <button
+                type="button"
+                onClick={() => { setMode('signin'); clearMessage(); }}
+                className="text-xs text-ink-muted hover:text-ink transition-colors"
+              >
+                ← Back to sign in
+              </button>
             )}
 
             {mode === 'signup' && (
               <div>
-                <label htmlFor="auth-name" className="block text-sm font-medium text-slate-700 mb-1">
-                  Name
-                </label>
+                <label htmlFor="auth-name" className="eyebrow mb-1.5 block">Name</label>
                 <input
                   id="auth-name"
                   type="text"
@@ -138,14 +177,12 @@ export const AuthPage: React.FC = () => {
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Your name"
                   autoComplete="name"
-                  className="w-full px-4 py-2.5 rounded-lg border border-slate-300 bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                  className="w-full px-0 py-2 bg-transparent border-0 border-b border-rule focus:border-ink focus:ring-0 outline-none text-base text-ink placeholder:text-ink-whisper transition-colors"
                 />
               </div>
             )}
             <div>
-              <label htmlFor="auth-email" className="block text-sm font-medium text-slate-700 mb-1">
-                Email
-              </label>
+              <label htmlFor="auth-email" className="eyebrow mb-1.5 block">Email</label>
               <input
                 id="auth-email"
                 type="email"
@@ -154,22 +191,20 @@ export const AuthPage: React.FC = () => {
                 placeholder="you@example.com"
                 required
                 autoComplete="email"
-                className="w-full px-4 py-2.5 rounded-lg border border-slate-300 bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                className="w-full px-0 py-2 bg-transparent border-0 border-b border-rule focus:border-ink focus:ring-0 outline-none text-base text-ink placeholder:text-ink-whisper transition-colors"
               />
             </div>
             {mode !== 'forgot-password' && (
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label htmlFor="auth-password" className="block text-sm font-medium text-slate-700">
-                    Password
-                  </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label htmlFor="auth-password" className="eyebrow">Password</label>
                   {mode === 'signin' && (
                     <button
                       type="button"
                       onClick={() => { setMode('forgot-password'); clearMessage(); }}
-                      className="text-xs text-red-600 hover:text-red-700 font-medium transition-colors"
+                      className="text-[11px] text-ink-muted hover:text-ink transition-colors"
                     >
-                      Forgot password?
+                      Forgot?
                     </button>
                   )}
                 </div>
@@ -182,30 +217,30 @@ export const AuthPage: React.FC = () => {
                   required
                   minLength={6}
                   autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
-                  className="w-full px-4 py-2.5 rounded-lg border border-slate-300 bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                  className="w-full px-0 py-2 bg-transparent border-0 border-b border-rule focus:border-ink focus:ring-0 outline-none text-base text-ink placeholder:text-ink-whisper font-mono transition-colors"
                 />
                 {mode === 'signup' && (
-                  <p className="text-xs text-slate-500 mt-1">At least 6 characters</p>
+                  <p className="text-[11px] text-ink-muted mt-2">At least 6 characters</p>
                 )}
               </div>
             )}
 
             {message && (
               <div
-                className={`px-3 py-3 rounded-lg text-sm space-y-2 ${
-                  message.type === 'error' ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'
+                className={`p-4 rounded-xl text-sm space-y-2 ${
+                  message.type === 'error' ? 'bg-coral-50 text-coral-600 border border-coral-100' : 'bg-jade-50 text-jade-700 border border-jade-100'
                 }`}
               >
                 {message.type === 'success' && signupSuccess ? (
                   <>
-                    <div className="flex items-center gap-2 font-semibold">
+                    <div className="flex items-center gap-2 font-medium">
                       <Mail className="w-4 h-4 shrink-0" />
-                      Confirm your email to KTR Financial Tracker
+                      Check your email to confirm
                     </div>
-                    <p className="text-emerald-800/90">
-                      Check your email to confirm your account. If you don&apos;t see it, check your spam folder.
+                    <p className="text-jade-700/90 text-xs leading-relaxed">
+                      We sent you a confirmation link. If it&rsquo;s not in your inbox, check spam.
                     </p>
-                    <p className="text-emerald-800/90 pt-1">
+                    <p className="text-jade-700/90 text-xs pt-1">
                       Made by{' '}
                       <a
                         href="https://kanereroma.vercel.app"
@@ -214,7 +249,7 @@ export const AuthPage: React.FC = () => {
                         className="inline-flex items-center gap-1 font-medium underline hover:no-underline"
                       >
                         kanereroma.vercel.app
-                        <ExternalLink className="w-3.5 h-3.5" />
+                        <ExternalLink className="w-3 h-3" />
                       </a>
                     </p>
                   </>
@@ -230,7 +265,7 @@ export const AuthPage: React.FC = () => {
             <button
               type="submit"
               disabled={loading || (mode === 'forgot-password' && resetEmailSent)}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-red-600 text-white font-semibold hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors shadow-lg shadow-red-900/20"
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-full bg-ink hover:bg-jade-500 text-paper text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300"
             >
               {loading ? (
                 <>
@@ -238,19 +273,19 @@ export const AuthPage: React.FC = () => {
                   {mode === 'signup' ? 'Creating account…' : mode === 'forgot-password' ? 'Sending…' : 'Signing in…'}
                 </>
               ) : mode === 'signup' ? (
-                'Create account'
+                'Open the journal'
               ) : mode === 'forgot-password' ? (
                 resetEmailSent ? 'Email sent' : 'Send reset link'
               ) : (
-                'Sign in'
+                'Continue'
               )}
             </button>
           </form>
-        </div>
 
-        <p className="text-center text-xs text-slate-400 mt-6">
-          Your data is stored securely and only you can see it.
-        </p>
+          <p className="text-center text-[11px] text-ink-whisper mt-8 font-mono">
+            Encrypted &middot; Yours alone &middot; Built with discipline
+          </p>
+        </div>
       </div>
     </div>
   );
