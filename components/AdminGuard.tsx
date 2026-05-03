@@ -29,9 +29,9 @@ export const AdminGuard: React.FC<AdminGuardProps> = ({ children, fallback }) =>
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-red-600 border-t-transparent rounded-full animate-spin" />
-          <p className="text-slate-600 font-medium">Verifying admin access...</p>
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-ink/15 border-t-ink rounded-full animate-spin" />
+          <p className="text-sm text-ink-muted">Verifying admin access…</p>
         </div>
       </div>
     );
@@ -44,17 +44,17 @@ export const AdminGuard: React.FC<AdminGuardProps> = ({ children, fallback }) =>
 
     return (
       <div className="flex items-center justify-center py-16">
-        <div className="max-w-md bg-white rounded-xl border border-red-200 shadow-lg p-8 text-center">
-          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <AlertTriangle className="w-8 h-8 text-red-600" />
+        <div className="max-w-md bg-paper rounded-xl border border-rule p-8 text-center">
+          <div className="w-12 h-12 bg-coral-50 rounded-full flex items-center justify-center mx-auto mb-3">
+            <AlertTriangle className="w-6 h-6 text-coral-600" />
           </div>
-          <h2 className="text-2xl font-bold text-slate-900 mb-2">Access Denied</h2>
-          <p className="text-slate-600 mb-4">
-            You don't have permission to access this area. This section is restricted to administrators only.
+          <h2 className="text-lg font-medium text-ink mb-1">Access denied</h2>
+          <p className="text-sm text-ink-muted mb-4">
+            You don&apos;t have permission to access this area. Admin privileges required.
           </p>
-          <div className="flex items-center justify-center gap-2 text-sm text-slate-500 bg-slate-50 px-4 py-3 rounded-lg">
-            <Shield className="w-4 h-4" />
-            <span>Admin privileges required</span>
+          <div className="inline-flex items-center justify-center gap-1.5 text-xs text-ink-soft bg-paper-soft px-3 py-1.5 rounded-md border border-rule">
+            <Shield className="w-3.5 h-3.5" />
+            <span>Admin only</span>
           </div>
         </div>
       </div>

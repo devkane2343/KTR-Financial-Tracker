@@ -138,119 +138,104 @@ export const AnalyticsSummary: React.FC<AnalyticsSummaryProps> = ({ data }) => {
   const ringOffset = ringCircumference * (1 - savingsRate);
 
   return (
-    <div className="space-y-5">
-      {/* Editorial month banner */}
-      <div className="relative bg-paper rounded-2xl shadow-paper overflow-hidden">
-        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-jade-500 via-gold-400 to-coral-400" />
-        <div className="p-6 sm:p-7 flex flex-wrap items-end justify-between gap-4">
-          <div className="min-w-0">
-            <p className="eyebrow mb-1.5">Issue &middot; Selected Month</p>
-            <h2 className="font-display text-3xl sm:text-4xl text-ink leading-none">{monthLabel}</h2>
-            <p className="font-mono text-[11px] text-ink-muted mt-2">{monthPeriod}</p>
+    <div className="space-y-4">
+      {/* Month banner */}
+      <div className="bg-paper rounded-xl border border-rule p-5 sm:p-6 flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-xs text-ink-muted mb-1">Selected month</p>
+          <h2 className="font-display text-2xl sm:text-3xl text-ink tracking-tight leading-none">{monthLabel}</h2>
+          <p className="font-mono text-[11px] text-ink-muted mt-2">{monthPeriod}</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="text-right">
+            <p className="text-xs text-ink-muted mb-0.5">Archive</p>
+            <p className="font-mono text-xs text-ink-soft">{dateRange}</p>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="text-right">
-              <p className="eyebrow mb-0.5">Archive spans</p>
-              <p className="font-mono text-xs text-ink-soft">{dateRange}</p>
+          {sortedMonths.length > 1 && (
+            <div className="flex items-center gap-0.5 ml-2 border border-rule rounded-lg p-0.5">
+              <button
+                onClick={() => setSelectedMonthIndex(prev => Math.min(prev + 1, sortedMonths.length - 1))}
+                disabled={selectedMonthIndex >= sortedMonths.length - 1}
+                className="p-1.5 rounded-md hover:bg-paper-soft disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
+                title="Earlier month"
+              >
+                <ChevronLeft className="w-4 h-4 text-ink" />
+              </button>
+              <span className="font-mono text-[10px] text-ink-muted px-1.5 select-none">
+                {sortedMonths.length - selectedMonthIndex}/{sortedMonths.length}
+              </span>
+              <button
+                onClick={() => setSelectedMonthIndex(prev => Math.max(prev - 1, 0))}
+                disabled={selectedMonthIndex <= 0}
+                className="p-1.5 rounded-md hover:bg-paper-soft disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
+                title="Later month"
+              >
+                <ChevronRight className="w-4 h-4 text-ink" />
+              </button>
             </div>
-            {sortedMonths.length > 1 && (
-              <div className="flex items-center gap-1 ml-2 border border-rule rounded-full p-1">
-                <button
-                  onClick={() => setSelectedMonthIndex(prev => Math.min(prev + 1, sortedMonths.length - 1))}
-                  disabled={selectedMonthIndex >= sortedMonths.length - 1}
-                  className="p-1.5 rounded-full hover:bg-ink/5 disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
-                  title="Earlier month"
-                >
-                  <ChevronLeft className="w-4 h-4 text-ink" />
-                </button>
-                <span className="font-mono text-[10px] text-ink-muted px-1.5 select-none">
-                  {sortedMonths.length - selectedMonthIndex}/{sortedMonths.length}
-                </span>
-                <button
-                  onClick={() => setSelectedMonthIndex(prev => Math.max(prev - 1, 0))}
-                  disabled={selectedMonthIndex <= 0}
-                  className="p-1.5 rounded-full hover:bg-ink/5 disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
-                  title="Later month"
-                >
-                  <ChevronRight className="w-4 h-4 text-ink" />
-                </button>
-              </div>
-            )}
-          </div>
+          )}
         </div>
       </div>
 
-      {/* Featured: Monthly Gross Income — the headline */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        <div className="lg:col-span-7 relative bg-ink text-paper rounded-2xl p-7 shadow-paper-lift overflow-hidden">
-          <div className="absolute -right-20 -top-20 w-72 h-72 rounded-full bg-jade-500/15 blur-3xl pointer-events-none" />
-          <div className="absolute -right-32 -bottom-20 w-72 h-72 rounded-full bg-gold-400/12 blur-3xl pointer-events-none" />
-          <div className="relative">
-            <div className="flex items-center justify-between mb-6">
-              <p className="eyebrow text-paper/55">Monthly Gross Income</p>
-              <div className="flex items-center gap-2 text-paper/55 text-xs font-mono">
-                <TrendingUp className="w-3.5 h-3.5" />
-                <span>{incomeCountForMonth} {incomeCountForMonth === 1 ? 'paycheck' : 'paychecks'}</span>
-              </div>
+      {/* Featured: Monthly Gross Income */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
+        <div className="lg:col-span-7 relative bg-ink text-paper rounded-xl p-6 sm:p-7 overflow-hidden">
+          <div className="flex items-center justify-between mb-5">
+            <p className="text-xs uppercase tracking-wider text-paper/55">Gross income this month</p>
+            <div className="flex items-center gap-1.5 text-paper/55 text-xs font-mono">
+              <TrendingUp className="w-3.5 h-3.5" />
+              <span>{incomeCountForMonth} {incomeCountForMonth === 1 ? 'paycheck' : 'paychecks'}</span>
             </div>
-            <p className="num font-medium text-[44px] sm:text-[56px] leading-[0.9] tracking-tight text-paper animate-count-pop">
-              {formatCurrency(monthlyGrossIncome)}
-            </p>
-            <div className="flex items-baseline gap-6 mt-6 pt-5 border-t border-paper/10">
-              <div>
-                <p className="eyebrow text-paper/45 mb-0.5">Net after deductions</p>
-                <p className="num text-lg text-paper">{formatCurrency(monthlyNetIncome)}</p>
-              </div>
-              <div className="hairline w-12 self-center opacity-30" />
-              <div>
-                <p className="eyebrow text-paper/45 mb-0.5">Avg per paycheck</p>
-                <p className="num text-lg text-paper">{formatCurrency(averageNetIncomeForMonth)}</p>
-              </div>
+          </div>
+          <p className="num font-semibold text-4xl sm:text-5xl tracking-tight text-paper animate-count-pop">
+            {formatCurrency(monthlyGrossIncome)}
+          </p>
+          <div className="flex items-baseline gap-6 mt-5 pt-4 border-t border-paper/10">
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-paper/45 mb-0.5">Net after deductions</p>
+              <p className="num text-base text-paper">{formatCurrency(monthlyNetIncome)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-paper/45 mb-0.5">Avg per paycheck</p>
+              <p className="num text-base text-paper">{formatCurrency(averageNetIncomeForMonth)}</p>
             </div>
           </div>
         </div>
 
         {/* Health Score + Savings Ring */}
-        <div className="lg:col-span-5 relative bg-paper rounded-2xl p-7 shadow-paper overflow-hidden">
+        <div className="lg:col-span-5 bg-paper rounded-xl p-6 border border-rule">
           <div className="flex items-start justify-between mb-3">
             <div>
-              <p className="eyebrow mb-1">Discipline Score</p>
-              <h3 className="font-display text-3xl text-ink leading-none">{healthScore}<span className="text-ink-whisper text-xl">/100</span></h3>
-              <p className={`mt-2 inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider ${
-                healthAccent === 'jade' ? 'text-jade-500' : healthAccent === 'gold' ? 'text-gold-600' : 'text-coral-500'
+              <p className="text-xs text-ink-muted mb-1">Discipline score</p>
+              <h3 className="font-display text-3xl text-ink tracking-tight leading-none">{healthScore}<span className="text-ink-whisper text-lg font-normal">/100</span></h3>
+              <p className={`mt-2 inline-flex items-center gap-1.5 text-[11px] font-medium ${
+                healthAccent === 'jade' ? 'text-jade-600' : healthAccent === 'gold' ? 'text-gold-600' : 'text-coral-600'
               }`}>
                 <Sparkles className="w-3 h-3" /> {healthLabel}
               </p>
             </div>
-            {/* Savings rate ring */}
             <div className="relative w-[88px] h-[88px]">
               <svg viewBox="0 0 80 80" className="w-full h-full -rotate-90">
-                <circle cx="40" cy="40" r="36" fill="none" stroke="rgba(10,13,16,0.08)" strokeWidth="6" />
+                <circle cx="40" cy="40" r="36" fill="none" stroke="currentColor" strokeOpacity="0.12" className="text-ink" strokeWidth="6" />
                 <circle
                   cx="40" cy="40" r="36"
                   fill="none"
-                  stroke="url(#ringGrad)"
+                  stroke="#10b981"
                   strokeWidth="6"
                   strokeLinecap="round"
                   strokeDasharray={ringCircumference}
                   strokeDashoffset={ringOffset}
                   className="transition-all duration-700"
                 />
-                <defs>
-                  <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0%" stopColor="#0e5544" />
-                    <stop offset="100%" stopColor="#b8893d" />
-                  </linearGradient>
-                </defs>
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
                 <p className="num text-lg font-semibold text-ink leading-none">{savingsRatePct}%</p>
-                <p className="eyebrow text-[8px] mt-0.5">Saved</p>
+                <p className="text-[9px] uppercase tracking-wider text-ink-muted mt-0.5">Saved</p>
               </div>
             </div>
           </div>
 
-          <div className="hairline my-4" />
+          <div className="hairline my-3" />
 
           <p className="text-xs text-ink-muted leading-relaxed">
             {savingsRatePct >= 20
@@ -265,36 +250,36 @@ export const AnalyticsSummary: React.FC<AnalyticsSummaryProps> = ({ data }) => {
       </div>
 
       {/* Secondary KPIs */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-paper rounded-2xl p-5 shadow-paper">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="bg-paper rounded-xl p-5 border border-rule">
           <div className="flex items-center justify-between mb-2">
-            <p className="eyebrow">Average Net Income</p>
+            <p className="text-xs text-ink-muted">Avg net income</p>
             <BarChart3 className="w-4 h-4 text-ink-whisper" />
           </div>
-          <p className="num text-2xl text-ink font-medium">{formatCurrency(averageNetIncomeForMonth)}</p>
-          <p className="text-[11px] text-ink-muted mt-1">{incomeCountForMonth} {incomeCountForMonth === 1 ? 'paycheck' : 'paychecks'}</p>
+          <p className="num text-2xl text-ink font-semibold">{formatCurrency(averageNetIncomeForMonth)}</p>
+          <p className="text-xs text-ink-muted mt-1">{incomeCountForMonth} {incomeCountForMonth === 1 ? 'paycheck' : 'paychecks'}</p>
         </div>
 
-        <div className="bg-paper rounded-2xl p-5 shadow-paper">
+        <div className="bg-paper rounded-xl p-5 border border-rule">
           <div className="flex items-center justify-between mb-2">
-            <p className="eyebrow">Total Expenses</p>
-            <CreditCard className="w-4 h-4 text-coral-400" />
+            <p className="text-xs text-ink-muted">Total expenses</p>
+            <CreditCard className="w-4 h-4 text-ink-whisper" />
           </div>
-          <p className="num text-2xl text-ink font-medium">{formatCurrency(monthlyExpenses)}</p>
-          <p className="text-[11px] text-ink-muted mt-1">{expenseCountForMonth} {expenseCountForMonth === 1 ? 'transaction' : 'transactions'}</p>
+          <p className="num text-2xl text-ink font-semibold">{formatCurrency(monthlyExpenses)}</p>
+          <p className="text-xs text-ink-muted mt-1">{expenseCountForMonth} {expenseCountForMonth === 1 ? 'transaction' : 'transactions'}</p>
         </div>
 
-        <div className={`relative rounded-2xl p-5 shadow-paper overflow-hidden ${
-          monthlyNetBalance >= 0 ? 'bg-jade-50' : 'bg-coral-50'
+        <div className={`rounded-xl p-5 border ${
+          monthlyNetBalance >= 0 ? 'bg-jade-50/60 border-jade-100' : 'bg-coral-50/60 border-coral-100'
         }`}>
           <div className="flex items-center justify-between mb-2">
-            <p className="eyebrow">Net Balance</p>
-            <Wallet className={`w-4 h-4 ${monthlyNetBalance >= 0 ? 'text-jade-500' : 'text-coral-500'}`} />
+            <p className="text-xs text-ink-muted">Net balance</p>
+            <Wallet className={`w-4 h-4 ${monthlyNetBalance >= 0 ? 'text-jade-600' : 'text-coral-600'}`} />
           </div>
-          <p className={`num text-2xl font-medium ${monthlyNetBalance >= 0 ? 'text-jade-700' : 'text-coral-600'}`}>
+          <p className={`num text-2xl font-semibold ${monthlyNetBalance >= 0 ? 'text-jade-700' : 'text-coral-600'}`}>
             {monthlyNetBalance >= 0 ? '+' : ''}{formatCurrency(monthlyNetBalance)}
           </p>
-          <p className="text-[11px] text-ink-muted mt-1">
+          <p className="text-xs text-ink-muted mt-1">
             {savingsUsed > 0
               ? `${formatCurrency(savingsUsed)} drawn from savings`
               : monthlyNetBalance >= 0 ? 'Surplus — save it' : 'Deficit'}

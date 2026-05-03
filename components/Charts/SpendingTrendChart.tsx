@@ -4,6 +4,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tool
 import { Expense } from '../../types';
 import { Card } from '../UI/Card';
 import { formatCurrency, isSavingsCategory } from '../../lib/utils';
+import { useTheme } from '../../hooks/useTheme';
 
 export type SpendingViewMode = 'daily' | 'weekly' | 'monthly';
 
@@ -19,6 +20,14 @@ const VIEW_LABELS: Record<SpendingViewMode, string> = {
 
 export const SpendingTrendChart: React.FC<SpendingTrendChartProps> = ({ expenses }) => {
   const [viewMode, setViewMode] = useState<SpendingViewMode>('daily');
+  const theme = useTheme();
+  const isDark = theme === 'dark';
+  const lineColor    = isDark ? '#fafafa' : '#09090b';
+  const dotStroke    = isDark ? '#0a0a0b' : '#ffffff';
+  const gridStroke   = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(9,9,11,0.06)';
+  const tickFill     = isDark ? '#a1a1aa' : '#52525b';
+  const tooltipBg    = isDark ? '#fafafa' : '#09090b';
+  const tooltipText  = isDark ? '#09090b' : '#ffffff';
 
   const chartData = useMemo(() => {
     // Filter out savings categories (EF & General Savings) from spending
@@ -169,16 +178,16 @@ export const SpendingTrendChart: React.FC<SpendingTrendChartProps> = ({ expenses
   }, [expenses, viewMode]);
 
   return (
-    <Card title="Spending Trend" eyebrow="Chapter · Outflow">
-      <div className="flex flex-wrap gap-1.5 mb-5">
+    <Card title="Spending trend" eyebrow="Outflow">
+      <div className="flex flex-wrap gap-1 mb-4 bg-paper-soft border border-rule rounded-lg p-1 w-fit">
         {(Object.keys(VIEW_LABELS) as SpendingViewMode[]).map((mode) => (
           <button
             key={mode}
             onClick={() => setViewMode(mode)}
-            className={`px-3 py-1.5 rounded-full text-[11px] font-medium tracking-wide transition-all ${
+            className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
               viewMode === mode
-                ? 'bg-ink text-paper'
-                : 'bg-ink/5 text-ink-muted hover:bg-ink/10'
+                ? 'bg-paper text-ink shadow-paper'
+                : 'text-ink-muted hover:text-ink'
             }`}
           >
             {VIEW_LABELS[mode]}
@@ -190,22 +199,22 @@ export const SpendingTrendChart: React.FC<SpendingTrendChartProps> = ({ expenses
           <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
             <defs>
               <linearGradient id="spendingGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#b8893d" stopOpacity={0.25} />
-                <stop offset="100%" stopColor="#b8893d" stopOpacity={0} />
+                <stop offset="0%" stopColor={lineColor} stopOpacity={0.18} />
+                <stop offset="100%" stopColor={lineColor} stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="rgba(10,13,16,0.08)" />
+            <CartesianGrid strokeDasharray="2 4" vertical={false} stroke={gridStroke} />
             <XAxis
               dataKey="period"
               axisLine={false}
               tickLine={false}
-              tick={{ fontSize: 10, fill: '#5a6168', fontFamily: 'Geist' }}
+              tick={{ fontSize: 10, fill: tickFill, fontFamily: 'Geist' }}
               dy={10}
             />
             <YAxis
               axisLine={false}
               tickLine={false}
-              tick={{ fontSize: 10, fill: '#5a6168', fontFamily: 'JetBrains Mono' }}
+              tick={{ fontSize: 10, fill: tickFill, fontFamily: 'JetBrains Mono' }}
               tickFormatter={(val) => `₱${val}`}
             />
             <Tooltip
@@ -226,17 +235,17 @@ export const SpendingTrendChart: React.FC<SpendingTrendChartProps> = ({ expenses
                 }
                 return label;
               }}
-              contentStyle={{ borderRadius: '12px', border: 'none', background: '#0a0d10', color: '#fbf8f1', fontSize: '12px', fontFamily: 'Geist', boxShadow: '0 12px 32px -16px rgba(10,13,16,0.4)' }}
-              labelStyle={{ color: '#fbf8f1', opacity: 0.6, fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.18em' }}
-              itemStyle={{ color: '#fbf8f1' }}
+              contentStyle={{ borderRadius: '8px', border: 'none', background: tooltipBg, color: tooltipText, fontSize: '12px', fontFamily: 'Geist', boxShadow: '0 8px 24px -12px rgba(0,0,0,0.30)' }}
+              labelStyle={{ color: tooltipText, opacity: 0.6, fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.08em' }}
+              itemStyle={{ color: tooltipText }}
             />
             <Line
               type="monotone"
               dataKey="amount"
-              stroke="#b8893d"
-              strokeWidth={2.5}
-              dot={{ r: 3, fill: '#b8893d', strokeWidth: 2, stroke: '#fbf8f1' }}
-              activeDot={{ r: 6, strokeWidth: 2, fill: '#0a0d10', stroke: '#fbf8f1' }}
+              stroke={lineColor}
+              strokeWidth={2}
+              dot={{ r: 3, fill: lineColor, strokeWidth: 2, stroke: dotStroke }}
+              activeDot={{ r: 6, strokeWidth: 2, fill: lineColor, stroke: dotStroke }}
               fill="url(#spendingGrad)"
             />
           </LineChart>

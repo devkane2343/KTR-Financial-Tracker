@@ -4,6 +4,7 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Toolti
 import { FinancialData } from '../../types';
 import { Card } from '../UI/Card';
 import { formatCurrency, getNetIncome, splitIncomeByMonth, isSavingsCategory } from '../../lib/utils';
+import { useTheme } from '../../hooks/useTheme';
 
 export type NetIncomeViewMode = 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'yearly';
 
@@ -21,6 +22,15 @@ const VIEW_LABELS: Record<NetIncomeViewMode, string> = {
 
 export const NetIncomeTrendChart: React.FC<NetIncomeTrendChartProps> = ({ data }) => {
   const [viewMode, setViewMode] = useState<NetIncomeViewMode>('weekly');
+  const theme = useTheme();
+  const isDark = theme === 'dark';
+  const gridStroke   = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(9,9,11,0.06)';
+  const tickFill     = isDark ? '#a1a1aa' : '#52525b';
+  const tooltipBg    = isDark ? '#fafafa' : '#09090b';
+  const tooltipText  = isDark ? '#09090b' : '#ffffff';
+  const incomeBar    = '#10b981';                          // jade — same on both
+  const expenseBar   = isDark ? '#a1a1aa' : '#52525b';     // gray — flips
+  const netBar       = isDark ? '#fafafa' : '#09090b';     // foreground — flips
 
   const chartData = useMemo(() => {
     const { incomeHistory } = data;
@@ -328,16 +338,16 @@ export const NetIncomeTrendChart: React.FC<NetIncomeTrendChartProps> = ({ data }
   }, [data, viewMode]);
 
   return (
-    <Card title="Net Income Over Time" eyebrow="Chapter · Inflow">
-      <div className="flex flex-wrap gap-2 mb-4">
+    <Card title="Net income over time" eyebrow="Inflow">
+      <div className="flex flex-wrap gap-1 mb-4 bg-paper-soft border border-rule rounded-lg p-1 w-fit">
         {(Object.keys(VIEW_LABELS) as NetIncomeViewMode[]).map((mode) => (
           <button
             key={mode}
             onClick={() => setViewMode(mode)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+            className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
               viewMode === mode
-                ? 'bg-ink text-paper shadow-paper'
-                : 'bg-ink/5 text-ink-muted hover:bg-ink/10'
+                ? 'bg-paper text-ink shadow-paper'
+                : 'text-ink-muted hover:text-ink'
             }`}
           >
             {VIEW_LABELS[mode]}
@@ -347,18 +357,18 @@ export const NetIncomeTrendChart: React.FC<NetIncomeTrendChartProps> = ({ data }
       <div className="h-[300px] w-full">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-            <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="rgba(10,13,16,0.08)" />
+            <CartesianGrid strokeDasharray="2 4" vertical={false} stroke={gridStroke} />
             <XAxis
               dataKey="period"
               axisLine={false}
               tickLine={false}
-              tick={{ fontSize: 10, fill: '#5a6168', fontFamily: 'Geist' }}
+              tick={{ fontSize: 10, fill: tickFill, fontFamily: 'Geist' }}
               dy={10}
             />
             <YAxis
               axisLine={false}
               tickLine={false}
-              tick={{ fontSize: 10, fill: '#5a6168', fontFamily: 'JetBrains Mono' }}
+              tick={{ fontSize: 10, fill: tickFill, fontFamily: 'JetBrains Mono' }}
               tickFormatter={(val) => `₱${val}`}
             />
             <Tooltip
@@ -394,25 +404,25 @@ export const NetIncomeTrendChart: React.FC<NetIncomeTrendChartProps> = ({ data }
                 }
                 return label;
               }}
-              contentStyle={{ borderRadius: '12px', border: 'none', background: '#0a0d10', color: '#fbf8f1', fontFamily: 'Geist', fontSize: '12px', boxShadow: '0 12px 32px -16px rgba(10,13,16,0.4)' }}
-              labelStyle={{ color: '#fbf8f1', opacity: 0.7, fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.18em' }}
-              itemStyle={{ color: '#fbf8f1' }}
+              contentStyle={{ borderRadius: '8px', border: 'none', background: tooltipBg, color: tooltipText, fontFamily: 'Geist', fontSize: '12px', boxShadow: '0 8px 24px -12px rgba(0,0,0,0.30)' }}
+              labelStyle={{ color: tooltipText, opacity: 0.7, fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.08em' }}
+              itemStyle={{ color: tooltipText }}
             />
-            <Bar dataKey="netIncome" name="netIncome" fill="#0e5544" radius={[6, 6, 0, 0]} barSize={22} />
-            <Bar dataKey="expenses" name="expenses" fill="#b8893d" radius={[6, 6, 0, 0]} barSize={22} />
-            <Bar dataKey="net" name="net" fill="#0a0d10" radius={[6, 6, 0, 0]} barSize={22} />
+            <Bar dataKey="netIncome" name="netIncome" fill={incomeBar} radius={[4, 4, 0, 0]} barSize={20} />
+            <Bar dataKey="expenses" name="expenses" fill={expenseBar} radius={[4, 4, 0, 0]} barSize={20} />
+            <Bar dataKey="net" name="net" fill={netBar} radius={[4, 4, 0, 0]} barSize={20} />
           </BarChart>
         </ResponsiveContainer>
       </div>
-      <div className="mt-4 flex flex-wrap gap-5 text-[11px] text-ink-muted">
+      <div className="mt-4 flex flex-wrap gap-4 text-xs text-ink-muted">
         <span className="flex items-center gap-2">
-          <span className="w-2.5 h-2.5 rounded-sm bg-jade-500" /> Net Income
+          <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: incomeBar }} /> Net income
         </span>
         <span className="flex items-center gap-2">
-          <span className="w-2.5 h-2.5 rounded-sm bg-gold-500" /> Expenses
+          <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: expenseBar }} /> Expenses
         </span>
         <span className="flex items-center gap-2">
-          <span className="w-2.5 h-2.5 rounded-sm bg-ink" /> Surplus / Deficit
+          <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: netBar }} /> Surplus / Deficit
         </span>
       </div>
     </Card>

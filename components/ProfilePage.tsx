@@ -6,8 +6,6 @@ import { loadPortfolio, savePortfolio } from '../lib/portfolioUtils';
 import { Portfolio } from '../types';
 import { User as UserIcon, Mail, Lock, Save, Loader2, CheckCircle, AlertCircle, Camera, Trash2, Upload, Briefcase, DollarSign, Target } from 'lucide-react';
 
-const LOGO_URL = '/logo.png';
-
 interface ProfilePageProps {
   user: User;
   onPortfolioSaved?: () => void;
@@ -23,7 +21,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onPortfolioSaved
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Portfolio state
   const [portfolio, setPortfolio] = useState<Portfolio>({
     company_name: '',
     position: '',
@@ -42,7 +39,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onPortfolioSaved
     setAvatarUrl(getProfilePictureUrl(user));
   }, [user]);
 
-  // Load portfolio data
   useEffect(() => {
     const fetchPortfolio = async () => {
       const result = await loadPortfolio();
@@ -57,28 +53,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onPortfolioSaved
     e.preventDefault();
     setMessage(null);
     setLoading(true);
-
     try {
-      // Update user metadata (name)
       const { error: updateError } = await supabase.auth.updateUser({
         data: { full_name: fullName.trim() || undefined },
       });
-
       if (updateError) throw updateError;
-
-      // Update email if changed
       if (email !== user.email) {
-        const { error: emailError } = await supabase.auth.updateUser({
-          email: email,
-        });
-
+        const { error: emailError } = await supabase.auth.updateUser({ email });
         if (emailError) throw emailError;
-        setMessage({ 
-          type: 'success', 
-          text: 'Profile updated! Check your new email to confirm the change.' 
-        });
+        setMessage({ type: 'success', text: 'Profile updated. Confirm the email change in your inbox.' });
       } else {
-        setMessage({ type: 'success', text: 'Profile updated successfully!' });
+        setMessage({ type: 'success', text: 'Profile updated.' });
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -92,19 +77,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onPortfolioSaved
     setMessage(null);
     setLoading(true);
     setPasswordResetSent(false);
-
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(user.email!, {
         redirectTo: `${window.location.origin}/`,
       });
-
       if (error) throw error;
-
       setPasswordResetSent(true);
-      setMessage({ 
-        type: 'success', 
-        text: 'Password reset email sent! Check your inbox to change your password.' 
-      });
+      setMessage({ type: 'success', text: 'Password reset email sent. Check your inbox.' });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setMessage({ type: 'error', text: msg });
@@ -116,44 +95,36 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onPortfolioSaved
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     setMessage(null);
     setUploadingAvatar(true);
-
     try {
       const result = await uploadProfilePicture(file, user.id);
-      
       if (result.error) {
         setMessage({ type: 'error', text: result.error });
       } else if (result.url) {
         setAvatarUrl(result.url);
-        setMessage({ type: 'success', text: 'Profile picture updated successfully!' });
+        setMessage({ type: 'success', text: 'Profile picture updated.' });
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setMessage({ type: 'error', text: msg });
     } finally {
       setUploadingAvatar(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
   const handleAvatarDelete = async () => {
-    if (!confirm('Are you sure you want to remove your profile picture?')) return;
-
+    if (!confirm('Remove your profile picture?')) return;
     setMessage(null);
     setUploadingAvatar(true);
-
     try {
       const result = await deleteProfilePicture(user.id);
-      
       if (result.error) {
         setMessage({ type: 'error', text: result.error });
       } else {
         setAvatarUrl(null);
-        setMessage({ type: 'success', text: 'Profile picture removed successfully!' });
+        setMessage({ type: 'success', text: 'Profile picture removed.' });
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -171,17 +142,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onPortfolioSaved
     const numValue = parseFloat(value) || 0;
     const hoursPerDay = portfolio.hours_per_day || 8;
     if (portfolio.rate_type === 'hourly') {
-      setPortfolio(prev => ({ 
-        ...prev, 
-        hourly_rate: numValue,
-        monthly_rate: numValue * hoursPerDay * 22.5
-      }));
+      setPortfolio(prev => ({ ...prev, hourly_rate: numValue, monthly_rate: numValue * hoursPerDay * 22.5 }));
     } else {
-      setPortfolio(prev => ({ 
-        ...prev, 
-        monthly_rate: numValue,
-        hourly_rate: numValue / 22.5 / hoursPerDay
-      }));
+      setPortfolio(prev => ({ ...prev, monthly_rate: numValue, hourly_rate: numValue / 22.5 / hoursPerDay }));
     }
   };
 
@@ -189,7 +152,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onPortfolioSaved
     const numValue = parseFloat(value) || 8;
     setPortfolio(prev => {
       const newPortfolio = { ...prev, hours_per_day: numValue };
-      // Recalculate the opposite rate with new hours
       if (prev.rate_type === 'hourly' && prev.hourly_rate > 0) {
         newPortfolio.monthly_rate = prev.hourly_rate * numValue * 22.5;
       } else if (prev.rate_type === 'monthly' && prev.monthly_rate > 0) {
@@ -203,17 +165,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onPortfolioSaved
     e.preventDefault();
     setPortfolioMessage(null);
     setPortfolioLoading(true);
-
     try {
       const result = await savePortfolio(portfolio);
-      
       if (result.ok) {
-        setPortfolioMessage({ type: 'success', text: 'Portfolio saved successfully!' });
+        setPortfolioMessage({ type: 'success', text: 'Portfolio saved.' });
         setTimeout(() => setPortfolioMessage(null), 3000);
-        // Notify parent component that portfolio was saved
-        if (onPortfolioSaved) {
-          onPortfolioSaved();
-        }
+        if (onPortfolioSaved) onPortfolioSaved();
       } else {
         setPortfolioMessage({ type: 'error', text: result.error });
       }
@@ -225,66 +182,64 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onPortfolioSaved
     }
   };
 
+  const labelClass = "text-xs font-medium text-ink-soft mb-1 block";
+  const inputClass = "w-full px-3 py-2.5 bg-paper border border-rule rounded-lg focus:border-ink/30 focus:ring-2 focus:ring-ink/5 outline-none text-sm text-ink placeholder:text-ink-whisper transition-all";
+
+  const renderMessage = (msg: { type: 'error' | 'success'; text: string } | null) => {
+    if (!msg) return null;
+    return (
+      <div
+        className={`px-3 py-2.5 rounded-lg text-sm flex items-start gap-2 ${
+          msg.type === 'error'
+            ? 'bg-coral-50 text-coral-700 border border-coral-100'
+            : 'bg-jade-50 text-jade-700 border border-jade-100'
+        }`}
+      >
+        {msg.type === 'error' ? <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> : <CheckCircle className="w-4 h-4 shrink-0 mt-0.5" />}
+        <span>{msg.text}</span>
+      </div>
+    );
+  };
+
   return (
-    <div className="max-w-3xl mx-auto space-y-6 animate-in fade-in duration-500">
-      <div className="bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
-        <div className="bg-gradient-to-r from-red-600 to-red-700 p-6 text-white relative overflow-hidden">
-          <div className="relative z-10 flex items-center gap-4">
-            <div className="h-16 w-16 rounded-full bg-white/20 border-2 border-white flex items-center justify-center overflow-hidden backdrop-blur-sm">
-              {avatarUrl ? (
-                <img src={avatarUrl} className="w-full h-full object-cover" alt="Profile" />
-              ) : (
-                <img src={LOGO_URL} className="w-10 h-10 opacity-90" alt="Profile" />
-              )}
-            </div>
-            <div>
-              <h2 className="text-2xl font-bold">Profile Settings</h2>
-              <p className="text-red-100 text-sm">Manage your account information</p>
-            </div>
+    <div className="max-w-5xl mx-auto space-y-4 animate-fade-up">
+      {/* Account section */}
+      <div className="bg-paper rounded-xl border border-rule overflow-hidden">
+        <div className="p-5 border-b border-rule flex items-center gap-3">
+          <div className="h-10 w-10 rounded-lg bg-paper-soft border border-rule flex items-center justify-center overflow-hidden">
+            {avatarUrl ? (
+              <img src={avatarUrl} className="w-full h-full object-cover" alt="" />
+            ) : (
+              <UserIcon className="w-5 h-5 text-ink-muted" />
+            )}
           </div>
-          <img 
-            src={LOGO_URL} 
-            className="absolute -right-8 -bottom-8 w-48 h-48 opacity-10 rotate-12 pointer-events-none" 
-            alt="Watermark" 
-          />
+          <div>
+            <h2 className="text-base font-medium text-ink">Account</h2>
+            <p className="text-xs text-ink-muted">Manage your profile</p>
+          </div>
         </div>
 
-        <div className="p-6 space-y-6">
-          {message && (
-            <div
-              className={`px-4 py-3 rounded-lg text-sm flex items-start gap-2 ${
-                message.type === 'error' 
-                  ? 'bg-red-50 text-red-700 border border-red-200' 
-                  : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-              }`}
-            >
-              {message.type === 'error' ? (
-                <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
-              ) : (
-                <CheckCircle className="w-5 h-5 shrink-0 mt-0.5" />
-              )}
-              <span>{message.text}</span>
-            </div>
-          )}
+        <div className="p-5 space-y-5">
+          {renderMessage(message)}
 
-          {/* Profile Picture Upload Section */}
-          <div className="border-b border-slate-200 pb-6">
-            <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-4">
-              <Camera className="w-4 h-4" />
-              Profile Picture
+          {/* Avatar */}
+          <div className="border-b border-rule pb-5">
+            <label className="text-xs font-medium text-ink-soft mb-3 flex items-center gap-1.5">
+              <Camera className="w-3.5 h-3.5" />
+              Profile picture
             </label>
             <div className="flex items-center gap-4">
               <div className="relative">
-                <div className="h-24 w-24 rounded-full bg-slate-100 border-2 border-slate-200 flex items-center justify-center overflow-hidden">
+                <div className="h-20 w-20 rounded-full bg-paper-soft border border-rule flex items-center justify-center overflow-hidden">
                   {avatarUrl ? (
-                    <img src={avatarUrl} className="w-full h-full object-cover" alt="Profile" />
+                    <img src={avatarUrl} className="w-full h-full object-cover" alt="" />
                   ) : (
-                    <UserIcon className="w-10 h-10 text-slate-400" />
+                    <UserIcon className="w-8 h-8 text-ink-muted" />
                   )}
                 </div>
                 {uploadingAvatar && (
-                  <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center">
-                    <Loader2 className="w-6 h-6 text-white animate-spin" />
+                  <div className="absolute inset-0 bg-ink/50 rounded-full flex items-center justify-center">
+                    <Loader2 className="w-5 h-5 text-paper animate-spin" />
                   </div>
                 )}
               </div>
@@ -300,35 +255,34 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onPortfolioSaved
                 <div className="flex gap-2">
                   <label
                     htmlFor="avatar-upload"
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-700 text-white text-sm font-medium hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-ink hover:bg-ink-soft text-paper text-sm font-medium transition-colors cursor-pointer"
                   >
-                    <Upload className="w-4 h-4" />
-                    Upload Photo
+                    <Upload className="w-3.5 h-3.5" />
+                    Upload
                   </label>
                   {avatarUrl && (
                     <button
                       type="button"
                       onClick={handleAvatarDelete}
                       disabled={uploadingAvatar}
-                      className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-100 text-red-700 text-sm font-medium hover:bg-red-200 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-paper hover:bg-paper-soft border border-rule text-coral-600 text-sm font-medium transition-colors disabled:opacity-60"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-3.5 h-3.5" />
                       Remove
                     </button>
                   )}
                 </div>
-                <p className="text-xs text-slate-500">
-                  JPG, PNG, WebP or GIF. Max size 5MB.
+                <p className="text-xs text-ink-muted">
+                  JPG, PNG, WebP or GIF. Max 5MB.
                 </p>
               </div>
             </div>
           </div>
 
-          <form onSubmit={handleUpdateProfile} className="space-y-6">
+          <form onSubmit={handleUpdateProfile} className="space-y-4">
             <div>
-              <label htmlFor="profile-name" className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
-                <UserIcon className="w-4 h-4" />
-                Full Name
+              <label htmlFor="profile-name" className={labelClass}>
+                <span className="inline-flex items-center gap-1.5"><UserIcon className="w-3.5 h-3.5" /> Full name</span>
               </label>
               <input
                 id="profile-name"
@@ -336,43 +290,42 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onPortfolioSaved
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder="Your full name"
-                className="w-full px-4 py-3 rounded-lg border border-slate-300 bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all"
+                className={inputClass}
               />
             </div>
 
             <div>
-              <label htmlFor="profile-email" className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
-                <Mail className="w-4 h-4" />
-                Email Address
+              <label htmlFor="profile-email" className={labelClass}>
+                <span className="inline-flex items-center gap-1.5"><Mail className="w-3.5 h-3.5" /> Email</span>
               </label>
               <input
                 id="profile-email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="your@email.com"
+                placeholder="you@example.com"
                 required
-                className="w-full px-4 py-3 rounded-lg border border-slate-300 bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all"
+                className={inputClass}
               />
-              <p className="text-xs text-slate-500 mt-1.5">
-                Changing your email will require verification. You&apos;ll need to confirm both old and new email addresses.
+              <p className="text-xs text-ink-muted mt-1.5">
+                Changing email requires verification of both addresses.
               </p>
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-red-600 text-white font-semibold hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors shadow-lg shadow-red-900/20"
+              className="w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-lg bg-ink hover:bg-ink-soft text-paper text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
             >
               {loading ? (
                 <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Updating...
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Saving…
                 </>
               ) : (
                 <>
-                  <Save className="w-5 h-5" />
-                  Save Changes
+                  <Save className="w-4 h-4" />
+                  Save changes
                 </>
               )}
             </button>
@@ -380,153 +333,124 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onPortfolioSaved
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
-        <div className="p-6 border-b border-slate-200">
-          <div className="flex items-center gap-2 mb-2">
-            <Lock className="w-5 h-5 text-slate-700" />
-            <h3 className="text-lg font-bold text-slate-800">Password</h3>
+      {/* Password */}
+      <div className="bg-paper rounded-xl border border-rule overflow-hidden">
+        <div className="p-5 border-b border-rule">
+          <div className="flex items-center gap-2 mb-1">
+            <Lock className="w-4 h-4 text-ink-soft" />
+            <h3 className="text-base font-medium text-ink">Password</h3>
           </div>
-          <p className="text-sm text-slate-600">
-            To change your password, we&apos;ll send you a secure reset link via email.
+          <p className="text-sm text-ink-muted">
+            We&rsquo;ll email a secure link to reset your password.
           </p>
         </div>
 
-        <div className="p-6">
+        <div className="p-5">
           <button
             type="button"
             onClick={handlePasswordReset}
             disabled={loading || passwordResetSent}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-slate-700 text-white font-semibold hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+            className="w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-lg bg-paper hover:bg-paper-soft border border-rule text-ink text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
           >
             {loading ? (
               <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Sending...
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Sending…
               </>
             ) : passwordResetSent ? (
               <>
-                <CheckCircle className="w-5 h-5" />
-                Reset Email Sent
+                <CheckCircle className="w-4 h-4" />
+                Reset email sent
               </>
             ) : (
               <>
-                <Lock className="w-5 h-5" />
-                Send Password Reset Email
+                <Lock className="w-4 h-4" />
+                Send reset link
               </>
             )}
           </button>
-          <p className="text-xs text-slate-500 mt-3 text-center">
-            You&apos;ll receive an email with a link to securely reset your password.
-          </p>
         </div>
       </div>
 
-      {/* Portfolio & Career Section */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
-        <div className="bg-gradient-to-r from-blue-600 to-blue-700 p-6 text-white relative overflow-hidden">
-          <div className="relative z-10 flex items-center gap-4">
-            <div className="h-12 w-12 rounded-full bg-white/20 border-2 border-white flex items-center justify-center backdrop-blur-sm">
-              <Briefcase className="w-6 h-6" />
-            </div>
-            <div>
-              <h2 className="text-2xl font-bold">Portfolio & Career</h2>
-              <p className="text-blue-100 text-sm">Your professional information</p>
-            </div>
+      {/* Portfolio & Career */}
+      <div className="bg-paper rounded-xl border border-rule overflow-hidden">
+        <div className="p-5 border-b border-rule flex items-center gap-3">
+          <div className="h-10 w-10 rounded-lg bg-paper-soft border border-rule flex items-center justify-center">
+            <Briefcase className="w-5 h-5 text-ink-soft" />
           </div>
-          <img 
-            src={LOGO_URL} 
-            className="absolute -right-8 -bottom-8 w-48 h-48 opacity-10 rotate-12 pointer-events-none" 
-            alt="Watermark" 
-          />
+          <div>
+            <h2 className="text-base font-medium text-ink">Portfolio &amp; career</h2>
+            <p className="text-xs text-ink-muted">Your professional information</p>
+          </div>
         </div>
 
-        <div className="p-6 space-y-6">
-          {portfolioMessage && (
-            <div
-              className={`px-4 py-3 rounded-lg text-sm flex items-start gap-2 ${
-                portfolioMessage.type === 'error' 
-                  ? 'bg-red-50 text-red-700 border border-red-200' 
-                  : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-              }`}
-            >
-              {portfolioMessage.type === 'error' ? (
-                <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
-              ) : (
-                <CheckCircle className="w-5 h-5 shrink-0 mt-0.5" />
-              )}
-              <span>{portfolioMessage.text}</span>
-            </div>
-          )}
+        <div className="p-5 space-y-5">
+          {renderMessage(portfolioMessage)}
 
-          <form onSubmit={handleSavePortfolio} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <form onSubmit={handleSavePortfolio} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label htmlFor="company-name" className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
-                  <Briefcase className="w-4 h-4" />
-                  Company Name
+                <label htmlFor="company-name" className={labelClass}>
+                  <span className="inline-flex items-center gap-1.5"><Briefcase className="w-3.5 h-3.5" /> Company</span>
                 </label>
                 <input
                   id="company-name"
                   type="text"
                   value={portfolio.company_name}
                   onChange={(e) => setPortfolio(prev => ({ ...prev, company_name: e.target.value }))}
-                  placeholder="Enter company name"
-                  className="w-full px-4 py-3 rounded-lg border border-slate-300 bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  placeholder="Company name"
+                  className={inputClass}
                 />
               </div>
 
               <div>
-                <label htmlFor="position" className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
-                  <UserIcon className="w-4 h-4" />
-                  Position
+                <label htmlFor="position" className={labelClass}>
+                  <span className="inline-flex items-center gap-1.5"><UserIcon className="w-3.5 h-3.5" /> Position</span>
                 </label>
                 <input
                   id="position"
                   type="text"
                   value={portfolio.position}
                   onChange={(e) => setPortfolio(prev => ({ ...prev, position: e.target.value }))}
-                  placeholder="Enter your position"
-                  className="w-full px-4 py-3 rounded-lg border border-slate-300 bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  placeholder="Your role"
+                  className={inputClass}
                 />
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="md:col-span-2">
-                <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
-                  <DollarSign className="w-4 h-4" />
-                  Rate Type
+                <label className={labelClass}>
+                  <span className="inline-flex items-center gap-1.5"><DollarSign className="w-3.5 h-3.5" /> Rate type</span>
                 </label>
-                <div className="flex gap-3">
+                <div className="flex gap-2">
                   <button
                     type="button"
                     onClick={() => handleRateTypeChange('hourly')}
-                    className={`flex-1 px-4 py-3 rounded-lg border-2 font-medium transition-all ${
+                    className={`flex-1 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
                       portfolio.rate_type === 'hourly'
-                        ? 'border-blue-600 bg-blue-50 text-blue-700'
-                        : 'border-slate-300 bg-white text-slate-700 hover:border-blue-300'
+                        ? 'border-ink bg-ink text-paper'
+                        : 'border-rule bg-paper text-ink hover:bg-paper-soft'
                     }`}
                   >
-                    Hourly Rate
+                    Hourly
                   </button>
                   <button
                     type="button"
                     onClick={() => handleRateTypeChange('monthly')}
-                    className={`flex-1 px-4 py-3 rounded-lg border-2 font-medium transition-all ${
+                    className={`flex-1 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
                       portfolio.rate_type === 'monthly'
-                        ? 'border-blue-600 bg-blue-50 text-blue-700'
-                        : 'border-slate-300 bg-white text-slate-700 hover:border-blue-300'
+                        ? 'border-ink bg-ink text-paper'
+                        : 'border-rule bg-paper text-ink hover:bg-paper-soft'
                     }`}
                   >
-                    Monthly Rate
+                    Monthly
                   </button>
                 </div>
               </div>
 
               <div>
-                <label htmlFor="hours-per-day" className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
-                  Hours Per Day
-                </label>
+                <label htmlFor="hours-per-day" className={labelClass}>Hours / day</label>
                 <input
                   id="hours-per-day"
                   type="number"
@@ -535,19 +459,18 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onPortfolioSaved
                   max="24"
                   value={portfolio.hours_per_day}
                   onChange={(e) => handleHoursPerDayChange(e.target.value)}
-                  className="w-full px-4 py-3 rounded-lg border-2 border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  className={`${inputClass} num`}
                 />
-                <p className="text-xs text-slate-500 mt-1">Default: 8 hours</p>
+                <p className="text-xs text-ink-muted mt-1">Default: 8 hours</p>
               </div>
             </div>
 
             <div>
-              <label htmlFor="rate-amount" className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
-                <DollarSign className="w-4 h-4" />
-                {portfolio.rate_type === 'hourly' ? 'Hourly Rate' : 'Monthly Rate'}
+              <label htmlFor="rate-amount" className={labelClass}>
+                <span className="inline-flex items-center gap-1.5"><DollarSign className="w-3.5 h-3.5" /> {portfolio.rate_type === 'hourly' ? 'Hourly rate' : 'Monthly rate'}</span>
               </label>
               <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-medium">₱</span>
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted text-sm font-mono">₱</span>
                 <input
                   id="rate-amount"
                   type="number"
@@ -556,21 +479,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onPortfolioSaved
                   value={portfolio.rate_type === 'hourly' ? portfolio.hourly_rate : portfolio.monthly_rate}
                   onChange={(e) => handleRateChange(e.target.value)}
                   placeholder="0.00"
-                  className="w-full pl-10 pr-4 py-3 rounded-lg border border-slate-300 bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                  className={`${inputClass} pl-7 num`}
                 />
               </div>
               {portfolio.rate_type === 'monthly' && portfolio.monthly_rate > 0 && (
-                <p className="text-xs text-slate-500 mt-1.5">
-                  Daily rate: ₱{(portfolio.monthly_rate / 22.5).toFixed(2)} • 
-                  Hourly rate: ₱{(portfolio.monthly_rate / 22.5 / portfolio.hours_per_day).toFixed(2)} 
-                  ({portfolio.hours_per_day}h/day)
+                <p className="text-xs text-ink-muted mt-1.5 num">
+                  Daily ₱{(portfolio.monthly_rate / 22.5).toFixed(2)} &middot; Hourly ₱{(portfolio.monthly_rate / 22.5 / portfolio.hours_per_day).toFixed(2)} ({portfolio.hours_per_day}h/day)
                 </p>
               )}
               {portfolio.rate_type === 'hourly' && portfolio.hourly_rate > 0 && (
-                <p className="text-xs text-slate-500 mt-1.5">
-                  Daily: ₱{(portfolio.hourly_rate * portfolio.hours_per_day).toFixed(2)} • 
-                  Monthly: ₱{(portfolio.hourly_rate * portfolio.hours_per_day * 22.5).toFixed(2)} 
-                  ({portfolio.hours_per_day}h/day)
+                <p className="text-xs text-ink-muted mt-1.5 num">
+                  Daily ₱{(portfolio.hourly_rate * portfolio.hours_per_day).toFixed(2)} &middot; Monthly ₱{(portfolio.hourly_rate * portfolio.hours_per_day * 22.5).toFixed(2)} ({portfolio.hours_per_day}h/day)
                 </p>
               )}
             </div>
@@ -578,17 +497,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onPortfolioSaved
             <button
               type="submit"
               disabled={portfolioLoading}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors shadow-lg shadow-blue-900/20"
+              className="w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-lg bg-ink hover:bg-ink-soft text-paper text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
             >
               {portfolioLoading ? (
                 <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Saving...
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Saving…
                 </>
               ) : (
                 <>
-                  <Save className="w-5 h-5" />
-                  Save Portfolio
+                  <Save className="w-4 h-4" />
+                  Save portfolio
                 </>
               )}
             </button>
@@ -596,59 +515,51 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onPortfolioSaved
         </div>
       </div>
 
-      {/* Dreams & Goals Section */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
-        <div className="bg-gradient-to-r from-purple-600 to-purple-700 p-6 text-white relative overflow-hidden">
-          <div className="relative z-10 flex items-center gap-4">
-            <div className="h-12 w-12 rounded-full bg-white/20 border-2 border-white flex items-center justify-center backdrop-blur-sm">
-              <Target className="w-6 h-6" />
-            </div>
-            <div>
-              <h2 className="text-2xl font-bold">Your Dreams</h2>
-              <p className="text-purple-100 text-sm">Where do you see yourself in 5 years?</p>
-            </div>
+      {/* Dreams & Goals */}
+      <div className="bg-paper rounded-xl border border-rule overflow-hidden">
+        <div className="p-5 border-b border-rule flex items-center gap-3">
+          <div className="h-10 w-10 rounded-lg bg-paper-soft border border-rule flex items-center justify-center">
+            <Target className="w-5 h-5 text-ink-soft" />
           </div>
-          <img 
-            src={LOGO_URL} 
-            className="absolute -right-8 -bottom-8 w-48 h-48 opacity-10 rotate-12 pointer-events-none" 
-            alt="Watermark" 
-          />
+          <div>
+            <h2 className="text-base font-medium text-ink">5-year vision</h2>
+            <p className="text-xs text-ink-muted">Where do you see yourself?</p>
+          </div>
         </div>
 
-        <div className="p-6">
+        <div className="p-5">
           <form onSubmit={handleSavePortfolio}>
             <div>
-              <label htmlFor="dreams" className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
-                <Target className="w-4 h-4" />
-                5-Year Goals & Dreams
+              <label htmlFor="dreams" className={labelClass}>
+                <span className="inline-flex items-center gap-1.5"><Target className="w-3.5 h-3.5" /> Goals &amp; dreams</span>
               </label>
               <textarea
                 id="dreams"
                 value={portfolio.dreams}
                 onChange={(e) => setPortfolio(prev => ({ ...prev, dreams: e.target.value }))}
-                placeholder="Describe your goals, aspirations, and where you want to be in 5 years..."
+                placeholder="Describe your career aspirations, personal goals, skills you want to develop…"
                 rows={6}
-                className="w-full px-4 py-3 rounded-lg border border-slate-300 bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all resize-none"
+                className={`${inputClass} resize-none`}
               />
-              <p className="text-xs text-slate-500 mt-1.5">
-                Write about your career aspirations, personal goals, skills you want to develop, or anything you dream of achieving.
+              <p className="text-xs text-ink-muted mt-1.5">
+                What you want to build, learn, or become.
               </p>
             </div>
 
             <button
               type="submit"
               disabled={portfolioLoading}
-              className="w-full mt-4 flex items-center justify-center gap-2 py-3 rounded-lg bg-purple-600 text-white font-semibold hover:bg-purple-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors shadow-lg shadow-purple-900/20"
+              className="w-full mt-4 inline-flex items-center justify-center gap-2 py-2.5 rounded-lg bg-ink hover:bg-ink-soft text-paper text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
             >
               {portfolioLoading ? (
                 <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Saving...
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Saving…
                 </>
               ) : (
                 <>
-                  <Save className="w-5 h-5" />
-                  Save Dreams
+                  <Save className="w-4 h-4" />
+                  Save vision
                 </>
               )}
             </button>
@@ -656,16 +567,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onPortfolioSaved
         </div>
       </div>
 
-      <div className="bg-slate-50 rounded-xl border border-slate-200 p-6">
-        <h3 className="text-sm font-semibold text-slate-700 mb-2">Account Information</h3>
-        <div className="space-y-2 text-sm">
-          <div className="flex justify-between">
-            <span className="text-slate-500">User ID:</span>
-            <span className="text-slate-700 font-mono text-xs">{user.id}</span>
+      {/* Account info footer */}
+      <div className="bg-paper rounded-xl border border-rule p-5">
+        <h3 className="text-xs font-medium text-ink-soft mb-2">Account info</h3>
+        <div className="space-y-1.5 text-sm">
+          <div className="flex justify-between gap-3">
+            <span className="text-ink-muted">User ID</span>
+            <span className="text-ink-soft font-mono text-xs truncate">{user.id}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-slate-500">Account Created:</span>
-            <span className="text-slate-700">{new Date(user.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span>
+            <span className="text-ink-muted">Created</span>
+            <span className="text-ink-soft">{new Date(user.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span>
           </div>
         </div>
       </div>

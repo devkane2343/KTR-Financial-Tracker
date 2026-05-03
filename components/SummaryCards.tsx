@@ -74,25 +74,22 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ data }) => {
   const cards = [
     {
       label: 'Lifetime Earnings',
-      kicker: 'I',
       value: formatCurrency(lifetimeEarnings),
       icon: <Banknote className="w-4 h-4" />,
-      tone: 'gold',
+      tone: 'neutral',
       formula: 'Sum of all weekly salaries',
       details: `∑ Weekly Salary = ${formatCurrency(lifetimeEarnings)}`
     },
     {
       label: 'Wallet Balance',
-      kicker: 'II',
       value: formatCurrency(currentBalance),
       icon: <Wallet className="w-4 h-4" />,
-      tone: 'jade',
+      tone: currentBalance >= 0 ? 'jade' : 'coral',
       formula: 'Net Income − Expenses',
       details: `${formatCurrency(totalNetIncome)} − ${formatCurrency(totalExpenses)} = ${formatCurrency(currentBalance)}`
     },
     {
       label: 'Total Savings',
-      kicker: 'III',
       value: formatCurrency(totalSavings),
       icon: <PiggyBank className="w-4 h-4" />,
       tone: 'jade',
@@ -105,7 +102,6 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ data }) => {
     },
     {
       label: 'Lifetime Expenses',
-      kicker: 'IV',
       value: formatCurrency(totalExpenses),
       icon: <CreditCard className="w-4 h-4" />,
       tone: 'coral',
@@ -114,7 +110,6 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ data }) => {
     },
     {
       label: 'Total Net Income',
-      kicker: 'V',
       value: formatCurrency(totalNetIncome),
       icon: <TrendingUp className="w-4 h-4" />,
       tone: 'jade',
@@ -123,60 +118,50 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ data }) => {
     },
     {
       label: 'Lifetime Deductions',
-      kicker: 'VI',
       value: formatCurrency(totalDeductions),
       icon: <Receipt className="w-4 h-4" />,
-      tone: 'ink',
+      tone: 'neutral',
       formula: '∑ (SSS + Pag-IBIG + PhilHealth + VUL + EF + GS)',
       details: `Total Deductions = ${formatCurrency(totalDeductions)}`
     }
   ];
 
-  const toneClasses = {
-    gold: { iconBg: 'bg-gold-50 text-gold-600', accent: 'text-gold-600' },
-    jade: { iconBg: 'bg-jade-50 text-jade-500', accent: 'text-jade-500' },
-    coral: { iconBg: 'bg-coral-50 text-coral-500', accent: 'text-coral-500' },
-    ink: { iconBg: 'bg-ink/8 text-ink-soft', accent: 'text-ink' },
+  const toneClasses: Record<string, { iconBg: string; valueColor: string }> = {
+    neutral: { iconBg: 'bg-paper-soft text-ink-soft', valueColor: 'text-ink' },
+    jade:    { iconBg: 'bg-jade-50 text-jade-600',    valueColor: 'text-ink' },
+    coral:   { iconBg: 'bg-coral-50 text-coral-600',  valueColor: 'text-ink' },
   };
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
       {cards.map((card, idx) => {
-        const tones = toneClasses[card.tone as keyof typeof toneClasses];
+        const tones = toneClasses[card.tone];
         const isHovered = hoveredCard === idx;
         return (
           <div
             key={idx}
-            className="group relative bg-paper rounded-2xl p-5 shadow-paper hover:shadow-paper-lift transition-all duration-300 cursor-help overflow-visible stagger animate-fade-up"
-            style={{ animationDelay: `${idx * 70}ms` }}
+            className="group relative bg-paper rounded-xl p-5 border border-rule hover:border-ink/15 transition-colors cursor-help stagger animate-fade-up"
+            style={{ animationDelay: `${idx * 40}ms` }}
             onMouseEnter={() => setHoveredCard(idx)}
             onMouseLeave={() => setHoveredCard(null)}
           >
-            {/* Top row: kicker + icon */}
-            <div className="flex items-start justify-between mb-3">
-              <span className="font-display text-[11px] font-medium text-ink-whisper tracking-[0.18em]">
-                № {card.kicker}
-              </span>
-              <div className={`${tones.iconBg} w-8 h-8 rounded-full flex items-center justify-center`}>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-medium text-ink-muted">{card.label}</p>
+              <div className={`${tones.iconBg} w-7 h-7 rounded-md flex items-center justify-center`}>
                 {card.icon}
               </div>
             </div>
 
-            {/* Label */}
-            <p className="eyebrow mb-2">{card.label}</p>
-
-            {/* Value */}
-            <p className={`num text-[26px] font-medium tracking-tight text-ink leading-none transition-colors group-hover:${tones.accent}`}>
+            <p className={`num text-2xl font-semibold tracking-tight leading-none ${tones.valueColor}`}>
               {card.value}
             </p>
 
-            {/* Tooltip */}
             {isHovered && (
-              <div className="absolute z-50 left-0 right-0 top-full mt-2 bg-ink text-paper p-4 rounded-xl shadow-paper-lift animate-fade-up">
+              <div className="absolute z-50 left-0 right-0 top-full mt-2 bg-ink text-paper p-3.5 rounded-lg shadow-paper-lift animate-fade-in">
                 <div className="absolute -top-1.5 left-6 w-3 h-3 bg-ink rotate-45" />
-                <p className="eyebrow text-gold-300 mb-1.5">Formula</p>
-                <p className="text-xs font-mono mb-3 text-paper/85">{card.formula}</p>
-                <p className="eyebrow text-jade-200 mb-1.5">Calculation</p>
+                <p className="text-[10px] uppercase tracking-wider text-paper/50 mb-1">Formula</p>
+                <p className="text-xs font-mono mb-2.5 text-paper/90">{card.formula}</p>
+                <p className="text-[10px] uppercase tracking-wider text-paper/50 mb-1">Calculation</p>
                 <p className="text-xs font-mono whitespace-pre-line text-paper/70 leading-relaxed">{card.details}</p>
               </div>
             )}

@@ -4,12 +4,24 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Toolti
 import { FinancialData } from '../../types';
 import { Card } from '../UI/Card';
 import { getNetIncome, getDeductionsForEntry, formatCurrency, isSavingsCategory } from '../../lib/utils';
+import { useTheme } from '../../hooks/useTheme';
 
 interface IncomeVsExpenseChartProps {
   data: FinancialData;
 }
 
 export const IncomeVsExpenseChart: React.FC<IncomeVsExpenseChartProps> = ({ data }) => {
+  const theme = useTheme();
+  const isDark = theme === 'dark';
+  const gridStroke    = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(9,9,11,0.06)';
+  const tickFill      = isDark ? '#a1a1aa' : '#52525b';
+  const tooltipBg     = isDark ? '#fafafa' : '#09090b';
+  const tooltipText   = isDark ? '#09090b' : '#ffffff';
+  const cursorFill    = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(9,9,11,0.04)';
+  const trackBg       = isDark ? '#27272a' : '#f4f4f5';
+  const expenseColor  = isDark ? '#a1a1aa' : '#52525b';
+  const foregroundCol = isDark ? '#fafafa' : '#09090b';
+
   const { totalNet, totalExp, totalDeductions, totalSavings, utilization, dateRange } = useMemo(() => {
     const totalNet = data.incomeHistory.reduce((sum, inc) => sum + getNetIncome(inc), 0);
     const totalExp = data.expenses
@@ -53,41 +65,41 @@ export const IncomeVsExpenseChart: React.FC<IncomeVsExpenseChartProps> = ({ data
   }, [data]);
 
   const chartData = [
-    { name: 'Lifetime Net Income', amount: totalNet, color: '#0e5544' },
-    { name: 'Mandatory Deductions', amount: totalDeductions, color: '#0a0d10' },
-    { name: 'Lifetime Savings', amount: totalSavings, color: '#3f835c' },
-    { name: 'Lifetime Expenses', amount: totalExp, color: '#b8893d' }
+    { name: 'Lifetime net income', amount: totalNet, color: '#10b981' },
+    { name: 'Mandatory deductions', amount: totalDeductions, color: expenseColor },
+    { name: 'Lifetime savings', amount: totalSavings, color: '#059669' },
+    { name: 'Lifetime expenses', amount: totalExp, color: foregroundCol }
   ];
 
   const burnTone = utilization > 90 ? 'coral' : utilization > 70 ? 'gold' : 'jade';
   const burnLabel = utilization > 90 ? 'Aggressive — pull back' : utilization > 70 ? 'Watchful' : 'Disciplined';
 
   return (
-    <Card title="Budget Utilization" eyebrow="Chapter · Allocation">
+    <Card title="Budget utilization" eyebrow="Allocation">
       {dateRange && (
         <p className="font-mono text-[11px] text-ink-muted mb-4">{dateRange}</p>
       )}
       <div className="h-[260px] w-full">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={chartData} layout="vertical" margin={{ left: -10, right: 24 }}>
-            <CartesianGrid strokeDasharray="2 4" horizontal vertical={false} stroke="rgba(10,13,16,0.06)" />
+            <CartesianGrid strokeDasharray="2 4" horizontal vertical={false} stroke={gridStroke} />
             <XAxis type="number" hide />
             <YAxis
               dataKey="name"
               type="category"
               axisLine={false}
               tickLine={false}
-              tick={{ fontSize: 10, fontWeight: 500, fill: '#5a6168', fontFamily: 'Geist' }}
-              width={130}
+              tick={{ fontSize: 10, fontWeight: 500, fill: tickFill, fontFamily: 'Geist' }}
+              width={140}
             />
             <Tooltip
-              cursor={{ fill: 'rgba(10,13,16,0.04)' }}
+              cursor={{ fill: cursorFill }}
               formatter={(value: number) => formatCurrency(value)}
-              contentStyle={{ borderRadius: '12px', border: 'none', background: '#0a0d10', color: '#fbf8f1', fontSize: '12px', fontFamily: 'Geist', boxShadow: '0 12px 32px -16px rgba(10,13,16,0.4)' }}
-              labelStyle={{ color: '#fbf8f1', opacity: 0.6 }}
-              itemStyle={{ color: '#fbf8f1' }}
+              contentStyle={{ borderRadius: '8px', border: 'none', background: tooltipBg, color: tooltipText, fontSize: '12px', fontFamily: 'Geist', boxShadow: '0 8px 24px -12px rgba(0,0,0,0.30)' }}
+              labelStyle={{ color: tooltipText, opacity: 0.6 }}
+              itemStyle={{ color: tooltipText }}
             />
-            <Bar dataKey="amount" radius={[0, 6, 6, 0]} barSize={28}>
+            <Bar dataKey="amount" radius={[0, 4, 4, 0]} barSize={24}>
               {chartData.map((entry, index) => (
                 <Cell key={`cell-${index}`} fill={entry.color} />
               ))}
@@ -95,19 +107,19 @@ export const IncomeVsExpenseChart: React.FC<IncomeVsExpenseChartProps> = ({ data
           </BarChart>
         </ResponsiveContainer>
       </div>
-      <div className="mt-5 pt-5 border-t border-rule">
+      <div className="mt-4 pt-4 border-t border-rule">
         <div className="flex items-baseline justify-between mb-2">
-          <span className="eyebrow">Burn Rate</span>
+          <span className="text-xs text-ink-muted">Burn rate</span>
           <div className="flex items-baseline gap-2">
-            <span className="num text-2xl font-medium text-ink">{Math.round(utilization)}<span className="text-ink-whisper text-base">%</span></span>
-            <span className={`eyebrow ${
-              burnTone === 'coral' ? 'text-coral-500' : burnTone === 'gold' ? 'text-gold-600' : 'text-jade-500'
+            <span className="num text-xl font-semibold text-ink">{Math.round(utilization)}<span className="text-ink-whisper text-sm">%</span></span>
+            <span className={`text-xs font-medium ${
+              burnTone === 'coral' ? 'text-coral-600' : burnTone === 'gold' ? 'text-gold-700' : 'text-jade-700'
             }`}>{burnLabel}</span>
           </div>
         </div>
-        <div className="w-full bg-ink/5 rounded-full h-1.5 overflow-hidden">
+        <div className="w-full rounded-full h-1.5 overflow-hidden" style={{ backgroundColor: trackBg }}>
           <div
-            className={`h-full rounded-full transition-all duration-1000 ${
+            className={`h-full rounded-full transition-all duration-700 ${
               burnTone === 'coral' ? 'bg-coral-500' : burnTone === 'gold' ? 'bg-gold-500' : 'bg-jade-500'
             }`}
             style={{ width: `${Math.min(100, utilization)}%` }}

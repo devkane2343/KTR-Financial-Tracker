@@ -3,82 +3,101 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KTR — Financial Journal</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#0a0a0b" media="(prefers-color-scheme: dark)">
+    <title>KTR — Financial Tracker</title>
     <link rel="icon" type="image/png" href="/logo.png">
     <script src="https://cdn.tailwindcss.com"></script>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..900,0..100;1,9..144,300..900,0..100&family=Geist:wght@300..700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <!-- Set theme before render to avoid flash -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('ktr-theme');
+          var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var dark = stored === 'dark' || (!stored && prefersDark);
+          if (dark) document.documentElement.classList.add('dark');
+        } catch (e) { /* localStorage may be blocked */ }
+      })();
+    </script>
 
     <script>
       tailwind.config = {
+        darkMode: 'class',
         theme: {
           extend: {
             fontFamily: {
-              display: ['"Fraunces"', 'serif'],
-              sans: ['"Geist"', 'system-ui', 'sans-serif'],
-              mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+              display: ['"Geist"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+              sans:    ['"Geist"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+              mono:    ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
             },
             colors: {
+              // Surfaces — driven by CSS vars so they flip in dark mode.
               paper: {
-                DEFAULT: '#fbf8f1',
-                soft: '#f4ede0',
-                deep: '#ede4d1',
+                DEFAULT: 'rgb(var(--paper) / <alpha-value>)',
+                soft:    'rgb(var(--paper-soft) / <alpha-value>)',
+                deep:    'rgb(var(--paper-deep) / <alpha-value>)',
               },
+              // Foregrounds — flip with theme.
               ink: {
-                DEFAULT: '#0a0d10',
-                soft: '#2c3338',
-                muted: '#5a6168',
-                whisper: '#8a9097',
+                DEFAULT: 'rgb(var(--ink) / <alpha-value>)',
+                soft:    'rgb(var(--ink-soft) / <alpha-value>)',
+                muted:   'rgb(var(--ink-muted) / <alpha-value>)',
+                whisper: 'rgb(var(--ink-whisper) / <alpha-value>)',
               },
+              // Accent palettes — keep their hue across themes.
               jade: {
-                50:  '#e8f0ec',
-                100: '#cfe0d6',
-                200: '#9fc1ad',
-                300: '#6fa285',
-                400: '#3f835c',
-                500: '#0e5544',
-                600: '#0b4537',
-                700: '#08362b',
-                800: '#06281f',
-                900: '#031913',
+                50:  '#ecfdf5',
+                100: '#d1fae5',
+                200: '#a7f3d0',
+                300: '#6ee7b7',
+                400: '#34d399',
+                500: '#10b981',
+                600: '#059669',
+                700: '#047857',
+                800: '#065f46',
+                900: '#064e3b',
               },
               gold: {
-                50:  '#faf3e3',
-                100: '#f3e7cc',
-                200: '#e8d099',
-                300: '#dab866',
-                400: '#c9a449',
-                500: '#b8893d',
-                600: '#946d31',
-                700: '#705225',
+                50:  '#fffbeb',
+                100: '#fef3c7',
+                200: '#fde68a',
+                300: '#fcd34d',
+                400: '#fbbf24',
+                500: '#f59e0b',
+                600: '#d97706',
+                700: '#b45309',
               },
               coral: {
-                50:  '#fbe9e3',
-                100: '#f5d2c5',
-                400: '#d97155',
-                500: '#c4543a',
-                600: '#a3422c',
+                50:  '#fef2f2',
+                100: '#fee2e2',
+                400: '#f87171',
+                500: '#ef4444',
+                600: '#dc2626',
               },
-              rule: 'rgba(10,13,16,0.08)',
+              // Hairline border — uses ink alpha so it flips with theme.
+              rule: 'rgb(var(--ink) / 0.08)',
             },
             boxShadow: {
-              'paper': '0 1px 0 rgba(10,13,16,0.04), 0 0 0 1px rgba(10,13,16,0.04)',
-              'paper-lift': '0 1px 0 rgba(10,13,16,0.05), 0 12px 32px -16px rgba(10,13,16,0.18), 0 0 0 1px rgba(10,13,16,0.05)',
-              'ring-jade': '0 0 0 4px rgba(14,85,68,0.12)',
-              'ring-gold': '0 0 0 4px rgba(184,137,61,0.18)',
+              'paper':       '0 0 0 1px var(--shadow-line)',
+              'paper-lift':  '0 1px 2px var(--shadow-soft), 0 8px 24px -12px var(--shadow-strong), 0 0 0 1px var(--shadow-line)',
+              'ring-jade':   '0 0 0 3px rgba(16,185,129,0.18)',
+              'ring-gold':   '0 0 0 3px rgba(245,158,11,0.18)',
+              'ring-ink':    '0 0 0 3px rgb(var(--ink) / 0.10)',
             },
             keyframes: {
               'fade-up': {
-                '0%':   { opacity: '0', transform: 'translateY(8px)' },
+                '0%':   { opacity: '0', transform: 'translateY(6px)' },
                 '100%': { opacity: '1', transform: 'translateY(0)' },
               },
               'fade-in': { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
               'count-pop': {
-                '0%':   { transform: 'scale(0.96)', opacity: '0.6' },
-                '60%':  { transform: 'scale(1.02)' },
+                '0%':   { transform: 'scale(0.98)', opacity: '0.6' },
                 '100%': { transform: 'scale(1)', opacity: '1' },
               },
               'sheen': {
@@ -86,15 +105,15 @@
                 '100%': { transform: 'translateX(220%) skewX(-20deg)' },
               },
               'pulse-jade': {
-                '0%, 100%': { boxShadow: '0 0 0 0 rgba(14,85,68,0.45)' },
-                '50%':      { boxShadow: '0 0 0 14px rgba(14,85,68,0)' },
+                '0%, 100%': { boxShadow: '0 0 0 0 rgba(16,185,129,0.45)' },
+                '50%':      { boxShadow: '0 0 0 8px rgba(16,185,129,0)' },
               },
             },
             animation: {
-              'fade-up': 'fade-up 600ms cubic-bezier(0.2,0.8,0.2,1) both',
-              'fade-in': 'fade-in 600ms ease-out both',
-              'count-pop': 'count-pop 500ms cubic-bezier(0.2,0.8,0.2,1) both',
-              'sheen': 'sheen 1400ms ease-out',
+              'fade-up':    'fade-up 360ms cubic-bezier(0.2,0.8,0.2,1) both',
+              'fade-in':    'fade-in 360ms ease-out both',
+              'count-pop':  'count-pop 300ms cubic-bezier(0.2,0.8,0.2,1) both',
+              'sheen':      'sheen 1400ms ease-out',
               'pulse-jade': 'pulse-jade 2000ms cubic-bezier(0.4,0,0.6,1) infinite',
             },
           },
@@ -103,43 +122,59 @@
     </script>
 
     <style>
+      /* Light theme tokens (RGB values, space-separated for Tailwind alpha syntax) */
       :root {
-        --paper: #fbf8f1;
-        --paper-soft: #f4ede0;
-        --ink: #0a0d10;
-        --jade: #0e5544;
-        --gold: #b8893d;
-        --coral: #c4543a;
+        --paper:        255 255 255;   /* card / surface */
+        --paper-soft:   244 244 245;   /* page bg / muted (zinc-100) */
+        --paper-deep:   228 228 231;   /* deeper muted (zinc-200) */
+        --ink:            9   9  11;   /* foreground (zinc-950) */
+        --ink-soft:      39  39  42;   /* zinc-800 */
+        --ink-muted:     82  82  91;   /* zinc-600 */
+        --ink-whisper:  161 161 170;   /* zinc-400 */
+
+        --shadow-line:   rgba(9,9,11,0.06);
+        --shadow-soft:   rgba(9,9,11,0.04);
+        --shadow-strong: rgba(9,9,11,0.10);
+
+        color-scheme: light;
+      }
+
+      /* Dark theme — applied when <html class="dark"> */
+      .dark {
+        --paper:        10  10  11;   /* near-black card */
+        --paper-soft:   24  24  27;   /* zinc-900 — page bg */
+        --paper-deep:   39  39  42;   /* zinc-800 */
+        --ink:         250 250 250;   /* foreground (zinc-50) */
+        --ink-soft:    228 228 231;   /* zinc-200 */
+        --ink-muted:   161 161 170;   /* zinc-400 */
+        --ink-whisper: 113 113 122;   /* zinc-500 */
+
+        --shadow-line:   rgba(255,255,255,0.08);
+        --shadow-soft:   rgba(0,0,0,0.30);
+        --shadow-strong: rgba(0,0,0,0.55);
+
+        color-scheme: dark;
       }
 
       html, body {
-        background-color: var(--paper);
-        color: var(--ink);
+        background-color: rgb(var(--paper-soft));
+        color: rgb(var(--ink));
         -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
         text-rendering: optimizeLegibility;
-        font-family: 'Geist', system-ui, sans-serif;
+        font-family: 'Geist', ui-sans-serif, system-ui, sans-serif;
         font-feature-settings: 'ss01' on, 'cv11' on;
+        transition: background-color 200ms ease, color 200ms ease;
       }
 
-      /* Subtle paper grain — adds warmth without noise */
-      body::before {
-        content: '';
-        position: fixed;
-        inset: 0;
-        pointer-events: none;
-        z-index: 0;
-        opacity: 0.35;
-        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.04 0 0 0 0 0.05 0 0 0 0 0.06 0 0 0 0.06 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
-      }
-
-      /* Display headings */
       .font-display {
-        font-family: 'Fraunces', serif;
-        font-variation-settings: 'opsz' 144, 'SOFT' 50;
-        letter-spacing: -0.01em;
+        font-family: 'Geist', ui-sans-serif, system-ui, sans-serif;
+        font-weight: 600;
+        letter-spacing: -0.02em;
       }
+      .font-display em,
+      .font-display i { font-style: normal; }
 
-      /* Tabular monospace for currency — locks numerals to a grid */
       .num,
       .font-mono {
         font-family: 'JetBrains Mono', ui-monospace, monospace;
@@ -147,41 +182,40 @@
         font-feature-settings: 'tnum' on, 'zero' on;
       }
 
-      /* Editorial small-caps section labels */
       .eyebrow {
-        font-family: 'Geist', sans-serif;
-        font-size: 10px;
-        font-weight: 600;
-        letter-spacing: 0.22em;
+        font-family: 'Geist', ui-sans-serif, system-ui, sans-serif;
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.04em;
         text-transform: uppercase;
-        color: rgba(10,13,16,0.55);
+        color: rgb(var(--ink-muted));
       }
 
-      /* Hairline rule */
       .hairline {
-        background-image: linear-gradient(to right, transparent, rgba(10,13,16,0.18), transparent);
+        background-color: rgb(var(--ink) / 0.08);
         height: 1px;
       }
 
-      /* Custom scrollbar — slim, paper-toned */
       ::-webkit-scrollbar { width: 8px; height: 8px; }
       ::-webkit-scrollbar-track { background: transparent; }
       ::-webkit-scrollbar-thumb {
-        background: rgba(10,13,16,0.12);
+        background: rgb(var(--ink) / 0.14);
         border-radius: 999px;
       }
-      ::-webkit-scrollbar-thumb:hover { background: rgba(10,13,16,0.24); }
+      ::-webkit-scrollbar-thumb:hover { background: rgb(var(--ink) / 0.28); }
 
-      /* Selection */
-      ::selection { background: rgba(14,85,68,0.18); color: #0a0d10; }
+      ::selection { background: rgba(16,185,129,0.25); color: rgb(var(--ink)); }
 
-      /* Inputs — calmer focus ring */
-      input, select, textarea {
-        font-family: 'Geist', system-ui, sans-serif;
+      input, select, textarea, button {
+        font-family: 'Geist', ui-sans-serif, system-ui, sans-serif;
       }
       input[type="date"]::-webkit-calendar-picker-indicator {
         opacity: 0.5;
         cursor: pointer;
+        filter: invert(0);
+      }
+      .dark input[type="date"]::-webkit-calendar-picker-indicator {
+        filter: invert(1);
       }
       input[type="number"]::-webkit-outer-spin-button,
       input[type="number"]::-webkit-inner-spin-button {
@@ -189,10 +223,8 @@
       }
       input[type="number"] { -moz-appearance: textfield; }
 
-      /* Stagger helper — apply animation-delay via inline style */
       .stagger { opacity: 0; }
 
-      /* Sheen overlay — for hero accents */
       .sheen {
         position: absolute;
         inset: 0;
@@ -205,12 +237,17 @@
         position: absolute;
         top: 0; bottom: 0;
         width: 30%;
-        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.30), transparent);
       }
 
-      /* Recharts text override — lock to Geist + tabular */
-      .recharts-text { font-family: 'Geist', system-ui, sans-serif; }
+      /* Recharts text — uniform Geist, color flips with theme */
+      .recharts-text { font-family: 'Geist', ui-sans-serif, system-ui, sans-serif; }
       .recharts-tooltip-wrapper { outline: none; }
+      .recharts-cartesian-axis-tick-value { fill: rgb(var(--ink-muted)) !important; }
+
+      .safe-pb {
+        padding-bottom: max(env(safe-area-inset-bottom), 0px);
+      }
     </style>
 <script type="importmap">
 {
@@ -224,7 +261,7 @@
 }
 </script>
 </head>
-<body>
+<body class="bg-paper-soft">
     <div id="root"></div>
 <script type="module" src="/index.tsx"></script>
 </body>

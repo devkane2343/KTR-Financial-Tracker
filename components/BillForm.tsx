@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Bill, BillCategory } from '../types';
-import { Card } from './UI/Card';
 import { generateId, getLocalDateString } from '../lib/utils';
 import { PlusCircle, Save, X, Calendar, Hash } from 'lucide-react';
 
@@ -64,46 +63,48 @@ export const BillForm: React.FC<BillFormProps> = ({ onAdd, onUpdate, editingBill
     }
   };
 
+  const labelClass = "text-xs font-medium text-ink-soft mb-1 block";
+  const inputClass = "w-full px-3 py-2 bg-paper border border-rule rounded-lg focus:border-ink/30 focus:ring-2 focus:ring-ink/5 outline-none text-sm text-ink placeholder:text-ink-whisper transition-all";
+
   return (
-    <div className={`relative bg-paper rounded-2xl shadow-paper overflow-hidden transition-all ${editingBill ? 'ring-1 ring-gold-300 shadow-paper-lift' : ''}`}>
-      <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-jade-500 via-gold-400 to-coral-400" />
-      <div className="px-6 pt-6 pb-4 border-b border-rule flex items-center justify-between">
+    <div className={`bg-paper rounded-xl border overflow-hidden transition-colors ${editingBill ? 'border-gold-300' : 'border-rule'}`}>
+      <div className="px-5 pt-5 pb-3 border-b border-rule flex items-center justify-between">
         <div>
-          <p className="eyebrow mb-1">{editingBill ? 'Revising entry' : 'New entry'}</p>
-          <h2 className="font-display text-2xl text-ink leading-tight">
-            {editingBill ? 'Edit Obligation' : 'Record Obligation'}
+          <p className="text-xs text-ink-muted mb-0.5">{editingBill ? 'Editing' : 'New entry'}</p>
+          <h2 className="font-display text-lg text-ink tracking-tight">
+            {editingBill ? 'Edit bill' : 'Add bill'}
           </h2>
         </div>
         {editingBill && onCancelEdit && (
           <button
             onClick={onCancelEdit}
-            className="p-1.5 hover:bg-ink/5 rounded-full text-ink-muted hover:text-ink transition-colors"
+            className="p-1.5 hover:bg-paper-soft rounded-md text-ink-muted hover:text-ink transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
         )}
       </div>
 
-      <form onSubmit={handleSubmit} className="p-6 space-y-4">
+      <form onSubmit={handleSubmit} className="p-5 space-y-4">
         <div>
-          <label className="eyebrow mb-1.5 block">Name</label>
+          <label className={labelClass}>Name</label>
           <input
             type="text"
             required
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="w-full px-0 py-2 bg-transparent border-0 border-b border-rule focus:border-ink focus:ring-0 outline-none font-display text-lg text-ink placeholder:text-ink-whisper transition-colors"
-            placeholder="Sunlife, Meralco, PLDT"
+            className={inputClass}
+            placeholder="Sunlife, Meralco, PLDT…"
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="eyebrow mb-1.5 block">Category</label>
+            <label className={labelClass}>Category</label>
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value as BillCategory)}
-              className="w-full px-3 py-2.5 bg-paper-soft/60 border border-rule rounded-lg focus:border-ink focus:ring-0 outline-none text-sm text-ink transition-colors"
+              className={inputClass}
             >
               {CATEGORIES.map(c => (
                 <option key={c} value={c}>{c}</option>
@@ -111,7 +112,7 @@ export const BillForm: React.FC<BillFormProps> = ({ onAdd, onUpdate, editingBill
             </select>
           </div>
           <div>
-            <label className="eyebrow mb-1.5 block">Amount</label>
+            <label className={labelClass}>Amount</label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted text-sm font-mono">₱</span>
               <input
@@ -119,7 +120,7 @@ export const BillForm: React.FC<BillFormProps> = ({ onAdd, onUpdate, editingBill
                 required
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                className="w-full pl-7 pr-3 py-2.5 bg-paper-soft/60 border border-rule rounded-lg focus:border-ink focus:ring-0 outline-none num text-sm text-ink transition-colors"
+                className={`${inputClass} pl-7 num`}
                 placeholder="0.00"
               />
             </div>
@@ -127,44 +128,44 @@ export const BillForm: React.FC<BillFormProps> = ({ onAdd, onUpdate, editingBill
         </div>
 
         <div>
-          <label className="eyebrow mb-1.5 flex items-center gap-1.5">
-            <Calendar className="w-3 h-3" /> Next Due Date
+          <label className={labelClass}>
+            <span className="inline-flex items-center gap-1.5"><Calendar className="w-3 h-3" /> Next due date</span>
           </label>
           <input
             type="date"
             required
             value={dueDate}
             onChange={(e) => setDueDate(e.target.value)}
-            className="w-full px-3 py-2.5 bg-paper-soft/60 border border-rule rounded-lg focus:border-ink focus:ring-0 outline-none text-sm text-ink transition-colors"
+            className={inputClass}
           />
-          <p className="mt-1.5 text-[11px] text-ink-muted leading-relaxed">
+          <p className="mt-1 text-xs text-ink-muted">
             Auto-advances by one month with each payment.
           </p>
         </div>
 
         <div>
-          <label className="eyebrow mb-1.5 flex items-center gap-1.5">
-            <Hash className="w-3 h-3" /> Total Payments <span className="text-ink-whisper normal-case tracking-normal text-[10px] ml-1">(optional)</span>
+          <label className={labelClass}>
+            <span className="inline-flex items-center gap-1.5"><Hash className="w-3 h-3" /> Total payments <span className="font-normal text-ink-whisper ml-1">(optional)</span></span>
           </label>
           <input
             type="number"
             min={1}
             value={totalPayments}
             onChange={(e) => setTotalPayments(e.target.value)}
-            className="w-full px-3 py-2.5 bg-paper-soft/60 border border-rule rounded-lg focus:border-ink focus:ring-0 outline-none num text-sm text-ink transition-colors"
+            className={`${inputClass} num`}
             placeholder="e.g. 12 for a 12-month loan"
           />
-          <p className="mt-1.5 text-[11px] text-ink-muted leading-relaxed">
-            Leave blank if recurring forever. For loans, the bill marks itself paid off after this many payments.
+          <p className="mt-1 text-xs text-ink-muted">
+            Leave blank if recurring. For loans, the bill auto-completes after this many payments.
           </p>
         </div>
 
         <button
           type="submit"
-          className="group w-full py-3 bg-ink hover:bg-jade-500 text-paper rounded-full text-sm font-medium transition-all duration-300 flex items-center justify-center gap-2"
+          className="w-full py-2.5 bg-ink hover:bg-ink-soft text-paper rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
         >
           {editingBill ? <Save className="w-4 h-4" /> : <PlusCircle className="w-4 h-4" />}
-          <span>{editingBill ? 'Save revisions' : 'File this obligation'}</span>
+          <span>{editingBill ? 'Save changes' : 'Add bill'}</span>
         </button>
       </form>
     </div>

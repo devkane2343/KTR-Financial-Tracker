@@ -6,7 +6,10 @@
       "Bash(grep -r \"href\\\\|Router\\\\|Route\\\\|Link\\\\|navigation\" /c/Users/Itachi/Desktop/KTR-Financial-Tracker --include=*.tsx --include=*.ts --exclude-dir=node_modules --exclude-dir=.git)",
       "Bash(grep -r \"TabType\\\\|activeTab\\\\|setActiveTab\" /c/Users/Itachi/Desktop/KTR-Financial-Tracker --include=*.tsx --include=*.ts --exclude-dir=node_modules --exclude-dir=.git)",
       "Bash(grep -r \"tab\\\\|Tab\\\\|navigation\\\\|Navigation\\\\|onClick\" /c/Users/Itachi/Desktop/KTR-Financial-Tracker/components --include=*.tsx --include=*.ts)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(timeout 10 npx vite build)",
+      "Bash(npx vite *)",
+      "Bash(curl *)"
     ]
   }
 }

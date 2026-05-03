@@ -3,8 +3,6 @@ import { loadPortfolio } from '../lib/portfolioUtils';
 import { Portfolio } from '../types';
 import { Briefcase, DollarSign, Target, Edit, Calendar, TrendingUp } from 'lucide-react';
 
-const LOGO_URL = '/logo.png';
-
 interface PortfolioCardProps {
   onEdit?: () => void;
   refreshTrigger?: number;
@@ -30,9 +28,9 @@ export const PortfolioCard: React.FC<PortfolioCardProps> = ({ onEdit, refreshTri
 
   if (loading) {
     return (
-      <div className="bg-white rounded-xl border border-slate-200 shadow-lg p-8">
+      <div className="bg-paper rounded-xl border border-rule p-8">
         <div className="flex items-center justify-center">
-          <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+          <div className="w-6 h-6 border-2 border-ink/15 border-t-ink rounded-full animate-spin"></div>
         </div>
       </div>
     );
@@ -40,22 +38,22 @@ export const PortfolioCard: React.FC<PortfolioCardProps> = ({ onEdit, refreshTri
 
   if (!portfolio || (!portfolio.company_name && !portfolio.position && !portfolio.dreams)) {
     return (
-      <div className="bg-gradient-to-br from-blue-50 to-purple-50 rounded-xl border-2 border-dashed border-slate-300 p-8 text-center">
+      <div className="bg-paper rounded-xl border-2 border-dashed border-rule p-10 text-center">
         <div className="max-w-md mx-auto">
-          <div className="h-16 w-16 rounded-full bg-slate-200 flex items-center justify-center mx-auto mb-4">
-            <Briefcase className="w-8 h-8 text-slate-400" />
+          <div className="h-12 w-12 rounded-full bg-paper-soft flex items-center justify-center mx-auto mb-3">
+            <Briefcase className="w-6 h-6 text-ink-muted" />
           </div>
-          <h3 className="text-lg font-bold text-slate-800 mb-2">No Portfolio Yet</h3>
-          <p className="text-sm text-slate-600 mb-4">
-            Create your professional portfolio to showcase your career information and goals.
+          <h3 className="text-base font-medium text-ink mb-1">No portfolio yet</h3>
+          <p className="text-sm text-ink-muted mb-4">
+            Add your career details and 5-year goals to populate this section.
           </p>
           {onEdit && (
             <button
               onClick={onEdit}
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold hover:from-blue-700 hover:to-purple-700 transition-all shadow-lg"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-ink hover:bg-ink-soft text-paper text-sm font-medium transition-colors"
             >
               <Edit className="w-4 h-4" />
-              Create Portfolio
+              Create portfolio
             </button>
           )}
         </div>
@@ -64,70 +62,60 @@ export const PortfolioCard: React.FC<PortfolioCardProps> = ({ onEdit, refreshTri
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Professional Information Card */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
-        <div className="bg-gradient-to-r from-blue-600 to-blue-700 p-6 text-white relative overflow-hidden">
-          <div className="relative z-10 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="h-14 w-14 rounded-full bg-white/20 border-2 border-white flex items-center justify-center backdrop-blur-sm">
-                <Briefcase className="w-7 h-7" />
-              </div>
-              <div>
-                <h2 className="text-2xl font-bold">Professional Portfolio</h2>
-                <p className="text-blue-100 text-sm">Career & Employment Details</p>
-              </div>
+      <div className="bg-paper rounded-xl border border-rule overflow-hidden">
+        <div className="p-5 border-b border-rule flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-lg bg-paper-soft border border-rule flex items-center justify-center">
+              <Briefcase className="w-5 h-5 text-ink-soft" />
             </div>
-            {onEdit && (
-              <button
-                onClick={onEdit}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/20 hover:bg-white/30 border border-white/30 backdrop-blur-sm transition-all"
-              >
-                <Edit className="w-4 h-4" />
-                <span className="hidden sm:inline">Edit</span>
-              </button>
-            )}
+            <div>
+              <h2 className="text-base font-medium text-ink">Professional portfolio</h2>
+              <p className="text-xs text-ink-muted">Career &amp; compensation</p>
+            </div>
           </div>
-          <img 
-            src={LOGO_URL} 
-            className="absolute -right-8 -bottom-8 w-48 h-48 opacity-10 rotate-12 pointer-events-none" 
-            alt="Watermark" 
-          />
+          {onEdit && (
+            <button
+              onClick={onEdit}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-paper hover:bg-paper-soft border border-rule text-ink text-sm transition-colors"
+            >
+              <Edit className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Edit</span>
+            </button>
+          )}
         </div>
 
-        <div className="p-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Company Name */}
+        <div className="p-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             {portfolio.company_name && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-sm font-semibold text-slate-500 uppercase tracking-wide">
-                  <Briefcase className="w-4 h-4" />
+              <div>
+                <div className="flex items-center gap-1.5 text-xs text-ink-muted mb-1">
+                  <Briefcase className="w-3.5 h-3.5" />
                   Company
                 </div>
-                <div className="text-xl font-bold text-slate-800">{portfolio.company_name}</div>
+                <div className="text-base font-medium text-ink">{portfolio.company_name}</div>
               </div>
             )}
 
-            {/* Position */}
             {portfolio.position && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-sm font-semibold text-slate-500 uppercase tracking-wide">
-                  <TrendingUp className="w-4 h-4" />
+              <div>
+                <div className="flex items-center gap-1.5 text-xs text-ink-muted mb-1">
+                  <TrendingUp className="w-3.5 h-3.5" />
                   Position
                 </div>
-                <div className="text-xl font-bold text-slate-800">{portfolio.position}</div>
+                <div className="text-base font-medium text-ink">{portfolio.position}</div>
               </div>
             )}
 
-            {/* Rate Information */}
             {(portfolio.hourly_rate > 0 || portfolio.monthly_rate > 0) && (
-              <div className="md:col-span-2 mt-4 p-4 bg-emerald-50 rounded-lg border border-emerald-200">
+              <div className="md:col-span-2 mt-2 p-4 bg-jade-50/60 rounded-lg border border-jade-100">
                 <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2 text-sm font-semibold text-emerald-700 uppercase tracking-wide">
-                    <DollarSign className="w-4 h-4" />
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-jade-700">
+                    <DollarSign className="w-3.5 h-3.5" />
                     Compensation
                   </div>
-                  <div className="text-xs text-slate-600 bg-white px-3 py-1 rounded-full border border-emerald-200">
+                  <div className="text-xs text-ink-soft bg-paper px-2 py-0.5 rounded-md border border-rule">
                     {portfolio.hours_per_day || 8}h/day
                   </div>
                 </div>
@@ -135,48 +123,48 @@ export const PortfolioCard: React.FC<PortfolioCardProps> = ({ onEdit, refreshTri
                   {portfolio.rate_type === 'monthly' && portfolio.monthly_rate > 0 && (
                     <>
                       <div>
-                        <div className="text-xs text-slate-500 mb-1">Monthly Rate</div>
-                        <div className="text-2xl font-bold text-emerald-600">
+                        <div className="text-xs text-ink-muted mb-1">Monthly</div>
+                        <div className="num text-xl font-semibold text-jade-700">
                           ₱{portfolio.monthly_rate.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </div>
                       </div>
                       <div>
-                        <div className="text-xs text-slate-500 mb-1">Daily Rate</div>
-                        <div className="text-2xl font-bold text-slate-700">
+                        <div className="text-xs text-ink-muted mb-1">Daily</div>
+                        <div className="num text-xl font-semibold text-ink">
                           ₱{(portfolio.monthly_rate / 22.5).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </div>
-                        <div className="text-xs text-slate-500 mt-0.5">÷ 22.5 days</div>
+                        <div className="text-xs text-ink-muted mt-0.5">÷ 22.5 days</div>
                       </div>
                       <div>
-                        <div className="text-xs text-slate-500 mb-1">Hourly Rate</div>
-                        <div className="text-2xl font-bold text-slate-700">
+                        <div className="text-xs text-ink-muted mb-1">Hourly</div>
+                        <div className="num text-xl font-semibold text-ink">
                           ₱{(portfolio.monthly_rate / 22.5 / (portfolio.hours_per_day || 8)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </div>
-                        <div className="text-xs text-slate-500 mt-0.5">÷ {portfolio.hours_per_day || 8} hours</div>
+                        <div className="text-xs text-ink-muted mt-0.5">÷ {portfolio.hours_per_day || 8} hours</div>
                       </div>
                     </>
                   )}
                   {portfolio.rate_type === 'hourly' && portfolio.hourly_rate > 0 && (
                     <>
                       <div>
-                        <div className="text-xs text-slate-500 mb-1">Hourly Rate</div>
-                        <div className="text-2xl font-bold text-emerald-600">
+                        <div className="text-xs text-ink-muted mb-1">Hourly</div>
+                        <div className="num text-xl font-semibold text-jade-700">
                           ₱{portfolio.hourly_rate.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </div>
                       </div>
                       <div>
-                        <div className="text-xs text-slate-500 mb-1">Daily Rate</div>
-                        <div className="text-2xl font-bold text-slate-700">
+                        <div className="text-xs text-ink-muted mb-1">Daily</div>
+                        <div className="num text-xl font-semibold text-ink">
                           ₱{(portfolio.hourly_rate * (portfolio.hours_per_day || 8)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </div>
-                        <div className="text-xs text-slate-500 mt-0.5">× {portfolio.hours_per_day || 8} hours</div>
+                        <div className="text-xs text-ink-muted mt-0.5">× {portfolio.hours_per_day || 8} hours</div>
                       </div>
                       <div>
-                        <div className="text-xs text-slate-500 mb-1">Monthly Estimate</div>
-                        <div className="text-2xl font-bold text-slate-700">
+                        <div className="text-xs text-ink-muted mb-1">Monthly est.</div>
+                        <div className="num text-xl font-semibold text-ink">
                           ₱{(portfolio.hourly_rate * (portfolio.hours_per_day || 8) * 22.5).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </div>
-                        <div className="text-xs text-slate-500 mt-0.5">× 22.5 days</div>
+                        <div className="text-xs text-ink-muted mt-0.5">× 22.5 days</div>
                       </div>
                     </>
                   )}
@@ -189,37 +177,28 @@ export const PortfolioCard: React.FC<PortfolioCardProps> = ({ onEdit, refreshTri
 
       {/* Dreams & Goals Card */}
       {portfolio.dreams && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
-          <div className="bg-gradient-to-r from-purple-600 to-purple-700 p-6 text-white relative overflow-hidden">
-            <div className="relative z-10 flex items-center gap-4">
-              <div className="h-12 w-12 rounded-full bg-white/20 border-2 border-white flex items-center justify-center backdrop-blur-sm">
-                <Target className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="text-xl font-bold">5-Year Vision</h3>
-                <p className="text-purple-100 text-sm">Goals & Dreams</p>
-              </div>
+        <div className="bg-paper rounded-xl border border-rule overflow-hidden">
+          <div className="p-5 border-b border-rule flex items-center gap-3">
+            <div className="h-10 w-10 rounded-lg bg-paper-soft border border-rule flex items-center justify-center">
+              <Target className="w-5 h-5 text-ink-soft" />
             </div>
-            <img 
-              src={LOGO_URL} 
-              className="absolute -right-8 -bottom-8 w-48 h-48 opacity-10 rotate-12 pointer-events-none" 
-              alt="Watermark" 
-            />
+            <div>
+              <h3 className="text-base font-medium text-ink">5-year vision</h3>
+              <p className="text-xs text-ink-muted">Goals &amp; aspirations</p>
+            </div>
           </div>
 
-          <div className="p-6">
-            <div className="prose prose-slate max-w-none">
-              <p className="text-slate-700 leading-relaxed whitespace-pre-wrap">{portfolio.dreams}</p>
-            </div>
+          <div className="p-5">
+            <p className="text-sm text-ink-soft leading-relaxed whitespace-pre-wrap">{portfolio.dreams}</p>
           </div>
 
           {portfolio.updated_at && (
-            <div className="px-6 pb-4 flex items-center gap-2 text-xs text-slate-500">
+            <div className="px-5 pb-4 flex items-center gap-1.5 text-xs text-ink-muted">
               <Calendar className="w-3.5 h-3.5" />
-              Last updated: {new Date(portfolio.updated_at).toLocaleDateString('en-US', { 
-                month: 'long', 
-                day: 'numeric', 
-                year: 'numeric' 
+              Last updated {new Date(portfolio.updated_at).toLocaleDateString('en-US', {
+                month: 'long',
+                day: 'numeric',
+                year: 'numeric'
               })}
             </div>
           )}

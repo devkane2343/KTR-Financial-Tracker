@@ -62,7 +62,7 @@ function UserAvatar({ user, size = 'sm' }: { user: UserWithDetails; size?: 'sm' 
   const sizeClass = size === 'lg' ? 'w-16 h-16 text-2xl' : 'w-10 h-10 text-sm';
 
   return (
-    <div className={`${sizeClass} rounded-full flex-shrink-0 overflow-hidden flex items-center justify-center bg-gradient-to-br from-red-500 to-red-600 text-white font-bold`}>
+    <div className={`${sizeClass} rounded-full flex-shrink-0 overflow-hidden flex items-center justify-center bg-ink text-paper font-medium`}>
       {showImg ? (
         <img
           src={user.avatar_url!}
@@ -370,25 +370,25 @@ export const AdminDashboard: React.FC = () => {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <Shield className="w-7 h-7 text-red-600" />
-            <h2 className="text-2xl font-bold text-slate-900">Admin Dashboard</h2>
+            <Shield className="w-5 h-5 text-ink-soft" />
+            <h2 className="font-display text-2xl text-ink tracking-tight">Admin dashboard</h2>
           </div>
-          <p className="text-sm text-slate-600 mt-1">Comprehensive user management and analytics</p>
+          <p className="text-sm text-ink-muted mt-1">User management and analytics</p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5 flex-wrap">
           <button
             onClick={() => {
               setShowSentMessagesModal(true);
               loadSentMessages();
             }}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors text-sm font-medium"
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-paper hover:bg-paper-soft border border-rule text-ink rounded-lg transition-colors text-sm font-medium"
           >
             <MessageSquare className="w-4 h-4" />
-            <span className="hidden sm:inline">Sent Messages</span>
+            <span className="hidden sm:inline">Sent messages</span>
           </button>
           <button
             onClick={exportToCSV}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg transition-colors text-sm font-medium"
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-paper hover:bg-paper-soft border border-rule text-ink rounded-lg transition-colors text-sm font-medium"
           >
             <Download className="w-4 h-4" />
             <span className="hidden sm:inline">Export CSV</span>
@@ -396,7 +396,7 @@ export const AdminDashboard: React.FC = () => {
           <button
             onClick={loadData}
             disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors disabled:opacity-50 text-sm font-medium"
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-paper hover:bg-paper-soft border border-rule text-ink rounded-lg transition-colors disabled:opacity-50 text-sm font-medium"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             <span className="hidden sm:inline">Refresh</span>
@@ -404,87 +404,86 @@ export const AdminDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Action Message */}
       {actionMessage && (
-        <div className={`p-4 rounded-lg flex items-center gap-2 ${
-          actionMessage.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+        <div className={`p-3 rounded-lg flex items-center gap-2 text-sm border ${
+          actionMessage.type === 'success'
+            ? 'bg-jade-50 text-jade-700 border-jade-100'
+            : 'bg-coral-50 text-coral-700 border-coral-100'
         }`}>
-          <AlertCircle className="w-5 h-5" />
+          <AlertCircle className="w-4 h-4 shrink-0" />
           {actionMessage.text}
         </div>
       )}
 
-      {/* Statistics Cards */}
       {stats && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-gradient-to-br from-blue-50 to-white rounded-xl p-6 border border-blue-100 shadow-sm hover:shadow-md transition-shadow">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="bg-paper rounded-xl p-5 border border-rule">
             <div className="flex items-center justify-between mb-3">
-              <div className="p-3 bg-blue-100 rounded-lg">
-                <Users className="w-6 h-6 text-blue-600" />
+              <div className="p-2 bg-paper-soft rounded-md">
+                <Users className="w-4 h-4 text-ink-soft" />
               </div>
-              <span className="text-3xl font-bold text-slate-900">{stats.total_users}</span>
+              <span className="num text-2xl font-semibold text-ink">{stats.total_users}</span>
             </div>
-            <p className="text-sm text-slate-600 font-semibold">Total Users</p>
-            <p className="text-xs text-slate-500 mt-1">All registered accounts</p>
+            <p className="text-sm font-medium text-ink">Total users</p>
+            <p className="text-xs text-ink-muted mt-0.5">All accounts</p>
           </div>
 
-          <div className="bg-gradient-to-br from-emerald-50 to-white rounded-xl p-6 border border-emerald-100 shadow-sm hover:shadow-md transition-shadow">
+          <div className="bg-paper rounded-xl p-5 border border-rule">
             <div className="flex items-center justify-between mb-3">
-              <div className="p-3 bg-emerald-100 rounded-lg">
-                <UserCheck className="w-6 h-6 text-emerald-600" />
+              <div className="p-2 bg-jade-50 rounded-md">
+                <UserCheck className="w-4 h-4 text-jade-600" />
               </div>
-              <span className="text-3xl font-bold text-slate-900">{stats.active_users}</span>
+              <span className="num text-2xl font-semibold text-ink">{stats.active_users}</span>
             </div>
-            <p className="text-sm text-slate-600 font-semibold">Active Users</p>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="text-sm font-medium text-ink">Active</p>
+            <p className="text-xs text-ink-muted mt-0.5">
               {stats.total_users > 0 ? Math.round((stats.active_users / stats.total_users) * 100) : 0}% of total
             </p>
           </div>
 
-          <div className="bg-gradient-to-br from-amber-50 to-white rounded-xl p-6 border border-amber-100 shadow-sm hover:shadow-md transition-shadow">
+          <div className="bg-paper rounded-xl p-5 border border-rule">
             <div className="flex items-center justify-between mb-3">
-              <div className="p-3 bg-amber-100 rounded-lg">
-                <UserMinus className="w-6 h-6 text-amber-600" />
+              <div className="p-2 bg-gold-50 rounded-md">
+                <UserMinus className="w-4 h-4 text-gold-600" />
               </div>
-              <span className="text-3xl font-bold text-slate-900">{stats.suspended_users}</span>
+              <span className="num text-2xl font-semibold text-ink">{stats.suspended_users}</span>
             </div>
-            <p className="text-sm text-slate-600 font-semibold">Suspended</p>
-            <p className="text-xs text-slate-500 mt-1">Temporarily disabled</p>
+            <p className="text-sm font-medium text-ink">Suspended</p>
+            <p className="text-xs text-ink-muted mt-0.5">Temporarily disabled</p>
           </div>
 
-          <div className="bg-gradient-to-br from-red-50 to-white rounded-xl p-6 border border-red-100 shadow-sm hover:shadow-md transition-shadow">
+          <div className="bg-paper rounded-xl p-5 border border-rule">
             <div className="flex items-center justify-between mb-3">
-              <div className="p-3 bg-red-100 rounded-lg">
-                <UserX className="w-6 h-6 text-red-600" />
+              <div className="p-2 bg-coral-50 rounded-md">
+                <UserX className="w-4 h-4 text-coral-600" />
               </div>
-              <span className="text-3xl font-bold text-slate-900">{stats.deleted_users}</span>
+              <span className="num text-2xl font-semibold text-ink">{stats.deleted_users}</span>
             </div>
-            <p className="text-sm text-slate-600 font-semibold">Deleted</p>
-            <p className="text-xs text-slate-500 mt-1">Soft deleted accounts</p>
+            <p className="text-sm font-medium text-ink">Deleted</p>
+            <p className="text-xs text-ink-muted mt-0.5">Soft deleted</p>
           </div>
         </div>
       )}
 
-      {/* Filters and Actions */}
-      <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm space-y-4">
-        <div className="flex flex-col sm:flex-row gap-4">
+      <div className="bg-paper rounded-xl p-5 border border-rule space-y-4">
+        <div className="flex flex-col sm:flex-row gap-3">
           <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-whisper" />
             <input
               type="text"
-              placeholder="Search by email or name..."
+              placeholder="Search by email or name…"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+              className="w-full pl-9 pr-3 py-2 text-sm bg-paper border border-rule rounded-lg focus:border-ink/30 focus:ring-2 focus:ring-ink/5 outline-none text-ink placeholder:text-ink-whisper transition-all"
             />
           </div>
 
           <div className="relative">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-whisper" />
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as any)}
-              className="pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 bg-white appearance-none cursor-pointer"
+              className="pl-9 pr-8 py-2 text-sm bg-paper border border-rule rounded-lg focus:border-ink/30 focus:ring-2 focus:ring-ink/5 outline-none text-ink appearance-none cursor-pointer"
             >
               <option value="all">All Status</option>
               <option value="active">Active</option>
@@ -1209,45 +1208,45 @@ export const AdminDashboard: React.FC = () => {
                 </p>
               </div>
 
-              <div className="bg-gradient-to-br from-emerald-50 to-white rounded-lg p-4 border border-emerald-200">
+              <div className="bg-jade-50/60 rounded-lg p-4 border border-jade-100">
                 <div className="flex items-center gap-2 mb-2">
-                  <TrendingUp className="w-4 h-4 text-emerald-600" />
-                  <span className="text-sm font-medium text-emerald-700">Total Income</span>
+                  <TrendingUp className="w-4 h-4 text-jade-600" />
+                  <span className="text-xs font-medium text-jade-700">Total income</span>
                 </div>
-                <p className="text-2xl font-bold text-emerald-600">
+                <p className="num text-xl font-semibold text-jade-700">
                   {formatCurrency(actionModal.user.total_income)}
                 </p>
               </div>
 
-              <div className="bg-gradient-to-br from-red-50 to-white rounded-lg p-4 border border-red-200">
+              <div className="bg-coral-50/60 rounded-lg p-4 border border-coral-100">
                 <div className="flex items-center gap-2 mb-2">
-                  <TrendingDown className="w-4 h-4 text-red-600" />
-                  <span className="text-sm font-medium text-red-700">Total Expenses</span>
+                  <TrendingDown className="w-4 h-4 text-coral-600" />
+                  <span className="text-xs font-medium text-coral-700">Total expenses</span>
                 </div>
-                <p className="text-2xl font-bold text-red-600">
+                <p className="num text-xl font-semibold text-coral-600">
                   {formatCurrency(actionModal.user.total_expenses)}
                 </p>
               </div>
             </div>
 
-            <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-lg p-6 text-white mb-6">
-              <div className="flex items-center gap-2 mb-2">
-                <DollarSign className="w-5 h-5" />
-                <span className="text-sm font-medium opacity-90">Net Amount</span>
+            <div className="bg-ink rounded-lg p-5 text-paper mb-6">
+              <div className="flex items-center gap-2 mb-1">
+                <DollarSign className="w-4 h-4 opacity-70" />
+                <span className="text-xs font-medium opacity-70">Net amount</span>
               </div>
-              <p className={`text-3xl font-bold ${
-                (actionModal.user.total_income - actionModal.user.total_expenses) >= 0 ? 'text-emerald-400' : 'text-red-400'
+              <p className={`num text-2xl font-semibold ${
+                (actionModal.user.total_income - actionModal.user.total_expenses) >= 0 ? 'text-jade-300' : 'text-coral-400'
               }`}>
                 {formatCurrency(actionModal.user.total_income - actionModal.user.total_expenses)}
               </p>
             </div>
 
-            <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-              <div className="flex items-center gap-2 mb-2">
-                <Bell className="w-4 h-4 text-blue-600" />
-                <span className="text-sm font-medium text-blue-700">Notifications</span>
+            <div className="bg-paper-soft/70 rounded-lg p-4 border border-rule">
+              <div className="flex items-center gap-2 mb-1">
+                <Bell className="w-4 h-4 text-ink-soft" />
+                <span className="text-xs font-medium text-ink-soft">Notifications</span>
               </div>
-              <p className="text-lg font-semibold text-blue-900">
+              <p className="text-base font-medium text-ink">
                 {actionModal.user.notification_count} notification(s) sent
               </p>
             </div>

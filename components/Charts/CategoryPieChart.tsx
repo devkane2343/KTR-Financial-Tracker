@@ -5,12 +5,23 @@ import { Expense } from '../../types';
 import { Card } from '../UI/Card';
 import { COLORS } from '../../constants';
 import { formatCurrency, isSavingsCategory } from '../../lib/utils';
+import { useTheme } from '../../hooks/useTheme';
 
 interface CategoryPieChartProps {
   expenses: Expense[];
 }
 
 export const CategoryPieChart: React.FC<CategoryPieChartProps> = ({ expenses }) => {
+  const theme = useTheme();
+  const isDark = theme === 'dark';
+  const sliceStroke = isDark ? '#0a0a0b' : '#ffffff';
+  const tooltipBg   = isDark ? '#fafafa' : '#09090b';
+  const tooltipText = isDark ? '#09090b' : '#ffffff';
+  // Palette flips its dark-foreground entry to a light tone in dark mode
+  const PALETTE = isDark
+    ? ['#fafafa', '#10b981', '#f59e0b', '#ef4444', '#a1a1aa', '#34d399', '#71717a', '#e4e4e7', '#fbbf24', '#d4d4d8']
+    : ['#09090b', '#10b981', '#f59e0b', '#ef4444', '#52525b', '#059669', '#a1a1aa', '#27272a', '#d97706', '#71717a'];
+
   const { data, dateRange, totalAmount } = useMemo(() => {
     const categoryTotals: { [key: string]: number } = {};
     const categoryCounts: { [key: string]: number } = {};
@@ -54,13 +65,10 @@ export const CategoryPieChart: React.FC<CategoryPieChartProps> = ({ expenses }) 
     return { data, dateRange, totalAmount };
   }, [expenses]);
 
-  // Editorial palette for categories
-  const PALETTE = ['#0e5544', '#b8893d', '#c4543a', '#0a0d10', '#3f835c', '#946d31', '#dab866', '#5a6168', '#08362b', '#705225'];
-
   const topCategory = data[0];
 
   return (
-    <Card title="Expense Breakdown" eyebrow="Chapter · Composition">
+    <Card title="Expense breakdown" eyebrow="Composition">
       {dateRange && (
         <p className="font-mono text-[11px] text-ink-muted mb-4">{dateRange}</p>
       )}
@@ -77,7 +85,7 @@ export const CategoryPieChart: React.FC<CategoryPieChartProps> = ({ expenses }) 
                   outerRadius={100}
                   paddingAngle={3}
                   dataKey="value"
-                  stroke="#fbf8f1"
+                  stroke={sliceStroke}
                   strokeWidth={3}
                 >
                   {data.map((entry, index) => (
@@ -97,8 +105,8 @@ export const CategoryPieChart: React.FC<CategoryPieChartProps> = ({ expenses }) 
                       name
                     ];
                   }}
-                  contentStyle={{ borderRadius: '12px', border: 'none', background: '#0a0d10', color: '#fbf8f1', fontSize: '12px', fontFamily: 'Geist', boxShadow: '0 12px 32px -16px rgba(10,13,16,0.4)' }}
-                  itemStyle={{ color: '#fbf8f1' }}
+                  contentStyle={{ borderRadius: '8px', border: 'none', background: tooltipBg, color: tooltipText, fontSize: '12px', fontFamily: 'Geist', boxShadow: '0 8px 24px -12px rgba(0,0,0,0.30)' }}
+                  itemStyle={{ color: tooltipText }}
                 />
               </PieChart>
             </ResponsiveContainer>
@@ -128,7 +136,7 @@ export const CategoryPieChart: React.FC<CategoryPieChartProps> = ({ expenses }) 
           </div>
         </>
       ) : (
-        <div className="h-[260px] flex items-center justify-center text-ink-whisper italic text-sm font-display">
+        <div className="h-[260px] flex items-center justify-center text-ink-muted text-sm">
           Add expenses to see breakdown
         </div>
       )}

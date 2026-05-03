@@ -32,7 +32,9 @@ import {
   ChevronDown,
   Shield,
   Briefcase,
-  Receipt
+  Receipt,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import { saveFinancialDataToSupabase, loadFinancialDataFromSupabase } from './lib/supabaseSave';
@@ -62,6 +64,21 @@ const App: React.FC = () => {
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [portfolioRefreshTrigger, setPortfolioRefreshTrigger] = useState(0);
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    if (typeof document === 'undefined') return 'light';
+    return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+  });
+
+  const toggleTheme = useCallback(() => {
+    setTheme((prev) => {
+      const next = prev === 'dark' ? 'light' : 'dark';
+      const root = document.documentElement;
+      if (next === 'dark') root.classList.add('dark');
+      else root.classList.remove('dark');
+      try { localStorage.setItem('ktr-theme', next); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
 
   const { shouldShow: showPrivacyNotice, handleAccept: handlePrivacyAccept } = usePrivacyNotice(user);
 
@@ -315,42 +332,32 @@ const App: React.FC = () => {
   })();
 
   const HeroCard = (
-    <div className="relative bg-paper rounded-3xl shadow-paper-lift overflow-hidden">
-      <div className="absolute -top-24 -right-24 w-72 h-72 rounded-full bg-jade-50/70 blur-3xl pointer-events-none" />
-      <div className="absolute -bottom-32 -left-16 w-80 h-80 rounded-full bg-gold-50/80 blur-3xl pointer-events-none" />
-      <div className="relative p-8 lg:p-10">
-        <div className="flex items-center gap-2 mb-5">
-          <span className="w-1.5 h-1.5 rounded-full bg-jade-500 animate-pulse-jade" />
-          <p className="eyebrow">Volume I · The Personal Ledger</p>
+    <div className="relative bg-paper rounded-2xl border border-rule overflow-hidden">
+      <div className="relative p-6 sm:p-8">
+        <div className="flex items-center gap-2 mb-4">
+          <span className="w-1.5 h-1.5 rounded-full bg-jade-500" />
+          <p className="text-xs text-ink-muted">Overview</p>
         </div>
-        <h1 className="font-display text-4xl lg:text-5xl leading-[0.95] text-ink mb-4">
-          {greetingTime}
-          {firstName ? (
-            <>
-              ,<br />
-              <em className="text-jade-500" style={{ fontStyle: 'italic' }}>{firstName}.</em>
-            </>
-          ) : (
-            <em className="text-jade-500" style={{ fontStyle: 'italic' }}>.</em>
-          )}
+        <h1 className="font-display text-3xl sm:text-4xl tracking-tight text-ink mb-3">
+          {greetingTime}{firstName ? `, ${firstName}` : ''}.
         </h1>
-        <p className="text-ink-muted text-[15px] leading-relaxed max-w-md mb-6">
-          Wealth is built quietly, in entries kept honestly. Log this week&rsquo;s pay, settle every bill on time, and watch the discipline compound.
+        <p className="text-ink-muted text-sm sm:text-[15px] leading-relaxed max-w-lg mb-6">
+          A quick look at where your money stands. Log this week&rsquo;s pay, settle bills, and keep the record clean.
         </p>
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setActiveTab('income')}
-            className="group relative bg-ink text-paper px-5 py-3 rounded-full text-sm font-medium flex items-center gap-2 hover:bg-jade-500 transition-all duration-300 shadow-paper"
+            className="group inline-flex items-center gap-1.5 bg-ink text-paper px-4 py-2 rounded-lg text-sm font-medium hover:bg-ink-soft transition-colors"
           >
-            <span>Log this week&rsquo;s pay</span>
+            <span>Log paycheck</span>
             <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
           </button>
           <button
             onClick={() => setActiveTab('bills')}
-            className="text-sm text-ink-muted hover:text-ink transition-colors flex items-center gap-1.5 px-3 py-3"
+            className="inline-flex items-center gap-1.5 text-sm text-ink-soft hover:text-ink bg-transparent hover:bg-paper-soft border border-rule px-4 py-2 rounded-lg transition-colors"
           >
             <Receipt className="w-4 h-4" />
-            <span className="border-b border-rule">Review bills</span>
+            <span>Review bills</span>
           </button>
         </div>
       </div>
@@ -358,12 +365,12 @@ const App: React.FC = () => {
   );
 
   const dashboardContent = useMemo(() => (
-    <div className="space-y-10 animate-fade-up">
+    <div className="space-y-8 animate-fade-up">
       {HeroCard}
       <div>
-        <div className="flex items-baseline justify-between mb-5">
-          <p className="eyebrow">The Ledger &middot; Lifetime</p>
-          <span className="text-xs text-ink-whisper font-mono">&sum; since first entry</span>
+        <div className="flex items-baseline justify-between mb-4">
+          <h2 className="text-sm font-medium text-ink">Lifetime totals</h2>
+          <span className="text-xs text-ink-muted font-mono">since first entry</span>
         </div>
         <SummaryCards data={data} />
       </div>
@@ -424,12 +431,9 @@ const App: React.FC = () => {
            editingExpense={editingExpense}
            onCancelEdit={() => setEditingExpense(null)}
          />
-         <div className="mt-6 bg-white p-6 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden">
-            <div className="relative z-10">
-              <h3 className="font-bold text-slate-800 mb-2">Wealth Observation</h3>
-              <p className="text-sm text-slate-500">Categorize your spending to see exactly where your power is going. Savings are your ultimate defense.</p>
-            </div>
-            <img src={LOGO_URL} className="absolute -right-2 -bottom-2 w-16 h-16 opacity-5 rotate-45" alt="Deco" />
+         <div className="mt-4 bg-paper p-5 rounded-2xl border border-rule">
+            <h3 className="text-sm font-medium text-ink mb-1.5">Tip</h3>
+            <p className="text-sm text-ink-muted leading-relaxed">Categorize spending to see where your money is going. Set savings aside first — every paycheck, every time.</p>
          </div>
       </div>
       <div className="lg:col-span-9">
@@ -446,13 +450,13 @@ const App: React.FC = () => {
   ), [data.expenses, editingExpense, handleAddExpense, handleUpdateExpense, handleDeleteExpense]);
 
   const analyticsContent = useMemo(() => (
-    <Suspense fallback={<div className="flex items-center justify-center py-16"><span className="w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /></div>}>
+    <Suspense fallback={<div className="flex items-center justify-center py-16"><span className="w-6 h-6 border-2 border-ink/20 border-t-ink rounded-full animate-spin" /></div>}>
       <AnalyticsView data={data} />
     </Suspense>
   ), [data]);
 
   const portfolioContent = useMemo(() => (
-    <div className="max-w-4xl mx-auto">
+    <div className="max-w-6xl mx-auto">
       <PortfolioCard
         onEdit={() => setActiveTab('profile')}
         refreshTrigger={portfolioRefreshTrigger}
@@ -500,22 +504,12 @@ const App: React.FC = () => {
 
   if (!authChecked || (user && !isLoaded)) {
     return (
-      <div className="min-h-screen bg-paper flex items-center justify-center relative">
-        <div className="flex flex-col items-center gap-6 relative z-10">
-          <div className="relative">
-            <div className="w-12 h-12 border-2 border-ink/15 border-t-jade-500 rounded-full animate-spin"></div>
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="w-1.5 h-1.5 bg-gold-400 rounded-full animate-pulse" />
-            </div>
-          </div>
-          <div className="text-center">
-            <p className="font-display italic text-2xl text-ink mb-1">
-              {!authChecked ? 'Verifying' : 'Gathering'}
-            </p>
-            <p className="eyebrow">
-              {!authChecked ? 'Your credentials' : 'Your ledger'}
-            </p>
-          </div>
+      <div className="min-h-screen bg-paper-soft flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-8 h-8 border-2 border-ink/15 border-t-ink rounded-full animate-spin"></div>
+          <p className="text-sm text-ink-muted">
+            {!authChecked ? 'Verifying credentials' : 'Loading your data'}
+          </p>
         </div>
       </div>
     );
@@ -536,67 +530,67 @@ const App: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-paper pb-24 sm:pb-12 relative">
+    <div className="min-h-screen bg-paper-soft pb-24 md:pb-12 relative">
       {/* Privacy Notice Modal */}
       <PrivacyNoticeModal isOpen={showPrivacyNotice} onAccept={handlePrivacyAccept} />
 
       {/* Navigation Header */}
-      <header className="bg-paper/80 backdrop-blur-md border-b border-rule sticky top-0 z-40">
-        <div className="max-w-[92rem] mx-auto px-5 sm:px-8 lg:px-10 h-[68px] flex items-center justify-between gap-6">
-          <div className="flex items-center gap-3 cursor-pointer group shrink-0" onClick={() => setActiveTab('dashboard')}>
-            <div className="relative w-9 h-9 flex items-center justify-center">
-              <div className="absolute inset-0 rounded-full bg-jade-500/8 group-hover:bg-jade-500/15 transition-colors" />
-              <img src={LOGO_URL} className="w-7 h-7 object-contain relative" alt="KTR" />
+      <header className="bg-paper/85 backdrop-blur-md border-b border-rule sticky top-0 z-40">
+        <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 h-14 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5 cursor-pointer group shrink-0" onClick={() => setActiveTab('dashboard')}>
+            <div className="w-8 h-8 rounded-lg bg-ink flex items-center justify-center overflow-hidden">
+              <img src={LOGO_URL} className="w-5 h-5 object-contain invert brightness-0" alt="KTR" />
             </div>
-            <div className="flex flex-col leading-none">
-              <span className="font-display text-[17px] text-ink tracking-tight">KTR <em className="not-italic text-jade-500">/</em> Financial Journal</span>
-              <span className="eyebrow text-[9px] mt-1">An ongoing record of discipline</span>
-            </div>
+            <span className="font-display text-[15px] text-ink tracking-tight hidden sm:inline">KTR Finance</span>
           </div>
 
-          <nav className="hidden md:flex items-center gap-1 mx-auto">
+          <nav className="hidden md:flex items-center gap-0.5 mx-auto bg-paper-soft/70 border border-rule rounded-lg p-1">
             {navItems.map((item) => {
               const isActive = activeTab === item.id;
               return (
                 <button
                   key={item.id}
                   onClick={() => setActiveTab(item.id as TabType)}
-                  className={`relative flex items-center gap-2 px-3.5 py-2 rounded-full text-[13px] font-medium transition-all ${
+                  className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors ${
                     isActive
-                      ? 'text-paper'
+                      ? 'bg-paper text-ink shadow-paper'
                       : 'text-ink-muted hover:text-ink'
                   }`}
                 >
-                  {isActive && (
-                    <span className="absolute inset-0 bg-ink rounded-full -z-0" />
-                  )}
-                  <span className="relative z-10 flex items-center gap-2">
-                    {item.icon}
-                    {item.label}
-                  </span>
+                  {item.icon}
+                  <span className="hidden lg:inline">{item.label}</span>
                 </button>
               );
             })}
           </nav>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              onClick={toggleTheme}
+              className="p-2 rounded-lg hover:bg-paper-soft text-ink-muted hover:text-ink transition-colors min-w-[36px] min-h-[36px] flex items-center justify-center"
+              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              aria-label="Toggle theme"
+            >
+              {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
+
             <NotificationBar />
 
             <button
               onClick={handleSaveToSupabase}
               disabled={saveStatus === 'saving'}
-              className={`relative flex items-center gap-2 px-3.5 py-2 rounded-full text-[13px] font-medium transition-all overflow-hidden ${
+              className={`relative inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors border ${
                 saveStatus === 'success'
-                  ? 'bg-jade-50 text-jade-600 border border-jade-100'
+                  ? 'bg-jade-50 text-jade-700 border-jade-100'
                   : saveStatus === 'error'
-                  ? 'bg-coral-50 text-coral-600 border border-coral-100'
-                  : 'bg-ink/5 text-ink hover:bg-ink/10 border border-rule'
+                  ? 'bg-coral-50 text-coral-600 border-coral-100'
+                  : 'bg-paper text-ink hover:bg-paper-soft border-rule'
               } disabled:opacity-60 disabled:cursor-not-allowed`}
               title="Save now (changes auto-save after 1.5s)"
             >
               {saveStatus === 'saving' && (
                 <>
-                  <span className="w-3.5 h-3.5 border-[1.5px] border-ink/30 border-t-jade-500 rounded-full animate-spin" />
+                  <span className="w-3.5 h-3.5 border-[1.5px] border-ink/20 border-t-ink rounded-full animate-spin" />
                   <span className="hidden sm:inline">Saving</span>
                 </>
               )}
@@ -605,47 +599,47 @@ const App: React.FC = () => {
                   <Check className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">
                     {saveSuccessCount && (saveSuccessCount.income > 0 || saveSuccessCount.expenses > 0)
-                      ? `Filed ${saveSuccessCount.income}+${saveSuccessCount.expenses}`
-                      : 'Filed'}
+                      ? `Saved ${saveSuccessCount.income}+${saveSuccessCount.expenses}`
+                      : 'Saved'}
                   </span>
                 </>
               )}
               {(saveStatus === 'idle' || saveStatus === 'error') && (
                 <>
                   <Save className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">File entry</span>
+                  <span className="hidden sm:inline">Save</span>
                 </>
               )}
             </button>
             {saveStatus === 'error' && saveError && (
-              <span className="hidden lg:flex items-center gap-1 text-xs text-coral-500 max-w-[280px] truncate" title={saveError}>
+              <span className="hidden lg:flex items-center gap-1 text-xs text-coral-500 max-w-[240px] truncate" title={saveError}>
                 <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                 {saveError}
               </span>
             )}
-            
+
             {/* Profile Dropdown */}
             <div className="relative" ref={profileDropdownRef}>
               <button
                 onClick={() => setIsProfileDropdownOpen(!isProfileDropdownOpen)}
-                className="flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-full hover:bg-ink/5 transition-all"
+                className="flex items-center gap-1 pl-0.5 pr-1.5 py-0.5 rounded-lg hover:bg-paper-soft transition-colors"
                 title={user.email ?? undefined}
               >
-                <div className="h-8 w-8 rounded-full bg-paper-soft border border-rule flex items-center justify-center overflow-hidden">
+                <div className="h-7 w-7 rounded-full bg-paper-soft border border-rule flex items-center justify-center overflow-hidden">
                   {getProfilePictureUrl(user) ? (
                     <img src={getProfilePictureUrl(user)!} className="w-full h-full object-cover" alt="Profile" />
                   ) : (
-                    <span className="font-display text-sm text-ink">{(firstName || user.email || '?').charAt(0).toUpperCase()}</span>
+                    <span className="text-xs font-medium text-ink">{(firstName || user.email || '?').charAt(0).toUpperCase()}</span>
                   )}
                 </div>
                 <ChevronDown className={`w-3.5 h-3.5 text-ink-muted transition-transform ${isProfileDropdownOpen ? 'rotate-180' : ''}`} />
               </button>
 
               {isProfileDropdownOpen && (
-                <div className="absolute right-0 mt-3 w-64 bg-paper rounded-2xl shadow-paper-lift py-2 z-50 animate-fade-up overflow-hidden">
-                  <div className="px-4 py-3 border-b border-rule">
-                    <p className="font-display text-lg text-ink leading-tight">
-                      {user?.user_metadata?.full_name || 'Reader'}
+                <div className="absolute right-0 mt-2 w-60 bg-paper rounded-xl shadow-paper-lift py-1 z-50 animate-fade-up overflow-hidden border border-rule">
+                  <div className="px-3 py-2.5 border-b border-rule">
+                    <p className="text-sm font-medium text-ink leading-tight truncate">
+                      {user?.user_metadata?.full_name || 'Account'}
                     </p>
                     <p className="text-xs text-ink-muted font-mono truncate mt-0.5">{user.email}</p>
                   </div>
@@ -655,15 +649,17 @@ const App: React.FC = () => {
                       setActiveTab('profile');
                       setIsProfileDropdownOpen(false);
                     }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-ink hover:bg-ink/5 transition-colors"
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-ink hover:bg-paper-soft transition-colors"
                   >
                     <UserIcon className="w-4 h-4 text-ink-muted" />
                     Profile &amp; portfolio
                   </button>
 
+                  <div className="hairline my-1" />
+
                   <button
                     onClick={() => supabase.auth.signOut()}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-coral-500 hover:bg-coral-50/60 transition-colors"
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-coral-600 hover:bg-coral-50 transition-colors"
                   >
                     <LogOut className="w-4 h-4" />
                     Sign out
@@ -676,22 +672,27 @@ const App: React.FC = () => {
       </header>
 
       {/* Mobile Bottom Navigation */}
-      <nav className="md:hidden fixed bottom-3 left-3 right-3 bg-ink/95 backdrop-blur-md text-paper rounded-full px-2 py-1.5 flex justify-around items-center z-50 shadow-paper-lift">
-        {navItems.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => setActiveTab(item.id as TabType)}
-            className={`flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-full transition-all min-w-0 ${
-              activeTab === item.id ? 'bg-paper/15 text-paper' : 'text-paper/55'
-            }`}
-          >
-            {item.icon}
-            <span className="text-[9px] font-medium tracking-wide truncate max-w-[58px]">{item.label}</span>
-          </button>
-        ))}
+      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-paper/95 backdrop-blur-lg border-t border-rule px-2 pt-1.5 safe-pb flex justify-around items-stretch z-50">
+        {navItems.map((item) => {
+          const isActive = activeTab === item.id;
+          return (
+            <button
+              key={item.id}
+              onClick={() => setActiveTab(item.id as TabType)}
+              className={`flex flex-col items-center gap-0.5 flex-1 min-w-0 py-1.5 rounded-md transition-colors ${
+                isActive ? 'text-ink' : 'text-ink-muted'
+              }`}
+            >
+              <span className={`flex items-center justify-center transition-colors ${isActive ? 'text-ink' : 'text-ink-muted'}`}>
+                {item.icon}
+              </span>
+              <span className={`text-[10px] truncate max-w-[60px] ${isActive ? 'font-medium' : ''}`}>{item.label}</span>
+            </button>
+          );
+        })}
       </nav>
 
-      <main className="max-w-[92rem] mx-auto px-5 sm:px-8 lg:px-10 py-10 relative">
+      <main className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 py-6 sm:py-8 relative">
 
         {/* Dashboard View */}
         <div className={activeTab === 'dashboard' ? 'space-y-8' : 'invisible absolute left-0 right-0 h-0 overflow-hidden pointer-events-none'} aria-hidden={activeTab !== 'dashboard'}>
@@ -735,14 +736,14 @@ const App: React.FC = () => {
 
       </main>
 
-      <footer className="max-w-[92rem] mx-auto px-5 sm:px-8 lg:px-10 pt-12 pb-8 mt-16">
-        <div className="hairline mb-6" />
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5">
-            <img src={LOGO_URL} className="w-4 h-4 opacity-50" alt="" />
-            <p className="font-display text-sm text-ink">KTR <em className="not-italic text-jade-500">/</em> Financial Journal</p>
+      <footer className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 pt-8 pb-6 mt-12">
+        <div className="hairline mb-5" />
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <img src={LOGO_URL} className="w-4 h-4 opacity-60" alt="" />
+            <p className="text-sm font-medium text-ink">KTR Finance</p>
           </div>
-          <p className="eyebrow text-[9px]">Encrypted &middot; Yours alone &middot; Built with discipline</p>
+          <p className="text-xs text-ink-muted">Encrypted &middot; Private &middot; Yours alone</p>
         </div>
       </footer>
     </div>
