@@ -9,7 +9,8 @@
       "Bash(npm run:*)",
       "Bash(timeout 10 npx vite build)",
       "Bash(npx vite *)",
-      "Bash(curl *)"
+      "Bash(curl *)",
+      "Bash(dir C:\\\\Users\\\\Itachi\\\\Desktop\\\\KTR-Financial-Tracker /b)"
     ]
   }
 }

@@ -109,7 +109,7 @@ export const PortfolioCard: React.FC<PortfolioCardProps> = ({ onEdit, refreshTri
             )}
 
             {(portfolio.hourly_rate > 0 || portfolio.monthly_rate > 0) && (
-              <div className="md:col-span-2 mt-2 p-4 bg-jade-50/60 rounded-lg border border-jade-100">
+              <div className="md:col-span-2 mt-2 p-4 bg-jade-50/60 dark:bg-jade-900/20 rounded-lg border border-jade-100 dark:border-jade-800">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-1.5 text-xs font-medium text-jade-700">
                     <DollarSign className="w-3.5 h-3.5" />

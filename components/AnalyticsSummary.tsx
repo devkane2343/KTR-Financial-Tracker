@@ -270,13 +270,15 @@ export const AnalyticsSummary: React.FC<AnalyticsSummaryProps> = ({ data }) => {
         </div>
 
         <div className={`rounded-xl p-5 border ${
-          monthlyNetBalance >= 0 ? 'bg-jade-50/60 border-jade-100' : 'bg-coral-50/60 border-coral-100'
+          monthlyNetBalance >= 0
+            ? 'bg-jade-50/60 border-jade-100 dark:bg-jade-900/30 dark:border-jade-800'
+            : 'bg-coral-50/60 border-coral-100 dark:bg-coral-500/10 dark:border-coral-500/30'
         }`}>
           <div className="flex items-center justify-between mb-2">
             <p className="text-xs text-ink-muted">Net balance</p>
-            <Wallet className={`w-4 h-4 ${monthlyNetBalance >= 0 ? 'text-jade-600' : 'text-coral-600'}`} />
+            <Wallet className={`w-4 h-4 ${monthlyNetBalance >= 0 ? 'text-jade-600 dark:text-jade-400' : 'text-coral-600 dark:text-coral-400'}`} />
           </div>
-          <p className={`num text-2xl font-semibold ${monthlyNetBalance >= 0 ? 'text-jade-700' : 'text-coral-600'}`}>
+          <p className={`num text-2xl font-semibold ${monthlyNetBalance >= 0 ? 'text-jade-700 dark:text-jade-300' : 'text-coral-600 dark:text-coral-400'}`}>
             {monthlyNetBalance >= 0 ? '+' : ''}{formatCurrency(monthlyNetBalance)}
           </p>
           <p className="text-xs text-ink-muted mt-1">

@@ -212,7 +212,7 @@ export const IncomeForm: React.FC<IncomeFormProps> = ({ onAdd, onUpdate, editing
                     key={bill.id}
                     className={`group flex items-center justify-between p-2.5 rounded-lg border cursor-pointer transition-colors ${
                       isChecked
-                        ? 'border-jade-300 bg-jade-50/60'
+                        ? 'border-jade-300 bg-jade-50/60 dark:border-jade-700 dark:bg-jade-900/30'
                         : alreadyPaid
                           ? 'border-rule bg-paper-soft/40 opacity-60'
                           : 'border-rule hover:border-ink/15 bg-paper'
@@ -227,7 +227,7 @@ export const IncomeForm: React.FC<IncomeFormProps> = ({ onAdd, onUpdate, editing
                       />
                       <span className="text-sm text-ink">{bill.name}</span>
                       {alreadyPaid && !isChecked && (
-                        <span className="text-[10px] text-jade-700 bg-jade-50 px-1.5 py-0.5 rounded-md font-medium">Settled</span>
+                        <span className="text-[10px] text-jade-700 bg-jade-50 dark:bg-jade-900/50 dark:text-jade-300 px-1.5 py-0.5 rounded-md font-medium">Settled</span>
                       )}
                     </div>
                     <span className="num text-sm font-medium text-ink-soft">{formatCurrency(bill.amount)}</span>
@@ -245,9 +245,9 @@ export const IncomeForm: React.FC<IncomeFormProps> = ({ onAdd, onUpdate, editing
         )}
 
         {duplicateWarning && (
-          <div className="p-3 bg-gold-50 border border-gold-200 rounded-lg">
+          <div className="p-3 bg-gold-50 dark:bg-gold-500/10 border border-gold-200 dark:border-gold-500/30 rounded-lg">
             <div className="flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 text-gold-600 shrink-0 mt-0.5" />
+              <AlertTriangle className="w-4 h-4 text-gold-600 dark:text-gold-400 shrink-0 mt-0.5" />
               <div className="flex-1">
                 <p className="text-sm text-ink leading-relaxed">
                   <span className="font-medium">{duplicateWarning.billName}</span> already settled. Add anyway?

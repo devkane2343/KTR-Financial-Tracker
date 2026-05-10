@@ -104,8 +104,8 @@ export const PortfolioEditor: React.FC<PortfolioEditorProps> = ({ user }) => {
         <div
           className={`px-3 py-2.5 rounded-lg text-sm flex items-start gap-2 ${
             message.type === 'error'
-              ? 'bg-coral-50 text-coral-700 border border-coral-100'
-              : 'bg-jade-50 text-jade-700 border border-jade-100'
+              ? 'bg-coral-50 text-coral-700 border border-coral-100 dark:bg-coral-500/10 dark:text-coral-400 dark:border-coral-500/30'
+              : 'bg-jade-50 text-jade-700 border border-jade-100 dark:bg-jade-900/40 dark:text-jade-300 dark:border-jade-800'
           }`}
         >
           {message.type === 'error' ? <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> : <CheckCircle className="w-4 h-4 shrink-0 mt-0.5" />}

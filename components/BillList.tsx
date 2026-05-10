@@ -35,11 +35,11 @@ const STATUS_META: Record<BillStatus, {
   badgeClasses: string;
   accent: string;
 }> = {
-  'overdue':    { label: 'Overdue',     badgeClasses: 'bg-coral-500 text-paper',         accent: 'text-coral-600' },
-  'due-soon':   { label: 'Due soon',    badgeClasses: 'bg-gold-100 text-gold-700',       accent: 'text-gold-700' },
-  'upcoming':   { label: 'Upcoming',    badgeClasses: 'bg-paper-soft text-ink-soft',     accent: 'text-ink-soft' },
-  'paid-ahead': { label: 'Paid ahead',  badgeClasses: 'bg-jade-50 text-jade-700',        accent: 'text-jade-600' },
-  'paid-off':   { label: 'Paid off',    badgeClasses: 'bg-ink text-paper',               accent: 'text-jade-600' },
+  'overdue':    { label: 'Overdue',     badgeClasses: 'bg-coral-500 text-paper',                                           accent: 'text-coral-500 dark:text-coral-400' },
+  'due-soon':   { label: 'Due soon',    badgeClasses: 'bg-gold-100 text-gold-700 dark:bg-gold-500/20 dark:text-gold-300',  accent: 'text-gold-700 dark:text-gold-400' },
+  'upcoming':   { label: 'Upcoming',    badgeClasses: 'bg-paper-soft text-ink-soft',                                       accent: 'text-ink-soft' },
+  'paid-ahead': { label: 'Paid ahead',  badgeClasses: 'bg-jade-50 text-jade-700 dark:bg-jade-900/50 dark:text-jade-300',  accent: 'text-jade-600 dark:text-jade-400' },
+  'paid-off':   { label: 'Paid off',    badgeClasses: 'bg-ink text-paper',                                                accent: 'text-jade-600 dark:text-jade-400' },
 };
 
 const formatDueLabel = (bill: Bill, today: string): string => {
@@ -231,7 +231,7 @@ export const BillList: React.FC<BillListProps> = ({ bills, payments, onDelete, o
                 {billPayments.slice(0, 12).map(p => {
                   const lateDays = daysBetween(p.dueDate, p.paidDate);
                   const onTimeLabel = lateDays === 0 ? 'on time' : lateDays > 0 ? `${lateDays}d late` : `${Math.abs(lateDays)}d early`;
-                  const onTimeClass = lateDays > 0 ? 'bg-coral-50 text-coral-600' : lateDays < 0 ? 'bg-gold-50 text-gold-700' : 'bg-jade-50 text-jade-700';
+                  const onTimeClass = lateDays > 0 ? 'bg-coral-50 text-coral-600 dark:bg-coral-500/20 dark:text-coral-400' : lateDays < 0 ? 'bg-gold-50 text-gold-700 dark:bg-gold-500/20 dark:text-gold-300' : 'bg-jade-50 text-jade-700 dark:bg-jade-900/50 dark:text-jade-300';
                   return (
                     <li key={p.id} className="flex items-center justify-between text-xs">
                       <span className="text-ink-muted">

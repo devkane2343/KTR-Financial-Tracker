@@ -18,6 +18,7 @@ import { BillList } from './components/BillList';
 import { PrivacyNoticeModal } from './components/PrivacyNoticeModal';
 
 const AnalyticsView = lazy(() => import('./components/AnalyticsView').then((m) => ({ default: m.AnalyticsView })));
+const DashboardCharts = lazy(() => import('./components/DashboardCharts').then((m) => ({ default: m.DashboardCharts })));
 import {
   LayoutDashboard,
   ReceiptText,
@@ -367,6 +368,7 @@ const App: React.FC = () => {
   const dashboardContent = useMemo(() => (
     <div className="space-y-8 animate-fade-up">
       {HeroCard}
+
       <div>
         <div className="flex items-baseline justify-between mb-4">
           <h2 className="text-sm font-medium text-ink">Lifetime totals</h2>
@@ -374,23 +376,23 @@ const App: React.FC = () => {
         </div>
         <SummaryCards data={data} />
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        <div className="lg:col-span-4">
+
+      <Suspense fallback={
+        <div className="flex items-center justify-center py-16">
+          <span className="w-6 h-6 border-2 border-ink/20 border-t-ink rounded-full animate-spin" />
+        </div>
+      }>
+        <DashboardCharts data={data} onGoToBills={() => setActiveTab('bills')} />
+      </Suspense>
+
+      <div>
+        <h2 className="text-sm font-medium text-ink mb-4">Quick log</h2>
+        <div className="max-w-md">
           <ExpenseForm
             onAdd={handleAddExpense}
             onUpdate={handleUpdateExpense}
             editingExpense={editingExpense}
             onCancelEdit={() => setEditingExpense(null)}
-          />
-        </div>
-        <div className="lg:col-span-8">
-          <ExpenseList
-            expenses={data.expenses}
-            onDelete={handleDeleteExpense}
-            onEdit={(exp) => {
-              setEditingExpense(exp);
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
           />
         </div>
       </div>
