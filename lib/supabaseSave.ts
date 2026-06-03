@@ -244,6 +244,50 @@ export async function saveFinancialDataToSupabase(data: FinancialData): Promise<
   }
 }
 
+/**
+ * Permanently remove a bill (and its payments) from Supabase.
+ * The autosave path only upserts, so a delete in the UI would otherwise
+ * reappear on the next load. Local-only bills (non-UUID ids never persisted)
+ * are a no-op.
+ */
+export async function deleteBillFromSupabase(billId: string): Promise<{ ok: boolean; error?: string }> {
+  const url = import.meta.env.VITE_SUPABASE_URL;
+  const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  if (!url || !key) {
+    return { ok: false, error: 'Missing Supabase config.' };
+  }
+
+  // Never saved to Supabase — nothing to delete remotely.
+  if (!isValidUUID(billId)) {
+    return { ok: true };
+  }
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return { ok: false, error: 'You must be signed in to delete.' };
+  }
+
+  try {
+    // Remove payments first (no FK cascade assumed), then the bill.
+    const { error: paymentsError } = await supabase
+      .from('bill_payments')
+      .delete()
+      .eq('bill_id', billId);
+    if (paymentsError) return { ok: false, error: paymentsError.message };
+
+    const { error: billError } = await supabase
+      .from('bills')
+      .delete()
+      .eq('id', billId);
+    if (billError) return { ok: false, error: billError.message };
+
+    return { ok: true };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: message };
+  }
+}
+
 export type LoadResult = { ok: true; data: FinancialData } | { ok: false; error: string };
 
 /** Load income and expenses for the current user from Supabase (RLS filters by auth.uid()). */

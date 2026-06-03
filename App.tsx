@@ -38,7 +38,7 @@ import {
   Moon
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
-import { saveFinancialDataToSupabase, loadFinancialDataFromSupabase } from './lib/supabaseSave';
+import { saveFinancialDataToSupabase, loadFinancialDataFromSupabase, deleteBillFromSupabase } from './lib/supabaseSave';
 import { getProfilePictureUrl } from './lib/profilePicture';
 import { isUserAdmin } from './lib/adminUtils';
 import { usePrivacyNotice } from './hooks/usePrivacyNotice';
@@ -291,6 +291,14 @@ const App: React.FC = () => {
       bills: prev.bills.filter(b => b.id !== id),
       billPayments: prev.billPayments.filter(p => p.billId !== id),
     }));
+    // Autosave only upserts, so we must explicitly delete the row from
+    // Supabase — otherwise it reappears on the next load/refresh.
+    deleteBillFromSupabase(id).then((res) => {
+      if (!res.ok) {
+        setSaveStatus('error');
+        setSaveError(res.error ?? 'Failed to delete bill');
+      }
+    });
     scheduleAutoSave();
   }, [scheduleAutoSave]);
 
