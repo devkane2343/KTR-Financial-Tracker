@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { FinancialData } from '../types';
-import { formatCurrency, getSavingsBreakdown } from '../lib/utils';
+import { formatCurrency, formatDateString, getSavingsBreakdown, getSavingsContributions, type SavingsBucket } from '../lib/utils';
 import { loadWalletBalances, saveWalletBalance, type BalanceField } from '../lib/walletStore';
-import { Wallet, PiggyBank, Shield, Landmark, Coins, CreditCard, Check, Pencil, X } from 'lucide-react';
+import { Wallet, PiggyBank, Shield, Landmark, Coins, CreditCard, Check, Pencil, X, Banknote, Receipt, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface NetWorthTabProps {
   data: FinancialData;
@@ -291,6 +291,130 @@ const BalanceCard: React.FC<BalanceCardProps> = ({ field, title, hint, icon, val
 };
 
 /**
+ * Detail modal for a savings bucket — lists every contribution (how much + when),
+ * newest first, with a running total. Opened by clicking a savings card.
+ */
+interface SavingsDetailModalProps {
+  bucket: SavingsBucket;
+  title: string;
+  data: FinancialData;
+  onClose: () => void;
+}
+
+const PAGE_SIZE = 8;
+
+const SavingsDetailModal: React.FC<SavingsDetailModalProps> = ({ bucket, title, data, onClose }) => {
+  const contributions = useMemo(
+    () => getSavingsContributions(bucket, data.incomeHistory, data.expenses),
+    [bucket, data.incomeHistory, data.expenses],
+  );
+  const total = contributions.reduce((s, c) => s + c.amount, 0);
+
+  const [page, setPage] = useState(0);
+  const pageCount = Math.max(1, Math.ceil(contributions.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageStart = safePage * PAGE_SIZE;
+  const pageItems = contributions.slice(pageStart, pageStart + PAGE_SIZE);
+
+  // Close on Escape.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-ink/40 backdrop-blur-sm animate-fade-in p-0 sm:p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${title} contributions`}
+    >
+      <div
+        className="bg-paper w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl border border-rule shadow-paper-lift max-h-[85vh] flex flex-col animate-fade-up"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3 p-5 border-b border-rule">
+          <div>
+            <p className="text-xs text-ink-muted mb-0.5">Savings contributions</p>
+            <h3 className="font-display text-lg text-ink tracking-tight">{title}</h3>
+            <p className="num text-2xl font-semibold text-ink mt-1">{formatCurrency(total)}</p>
+            <p className="text-[11px] text-ink-muted mt-0.5">
+              {contributions.length} {contributions.length === 1 ? 'contribution' : 'contributions'}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-md hover:bg-paper-soft text-ink-muted hover:text-ink transition-colors shrink-0"
+            aria-label="Close"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* List */}
+        <div className="overflow-y-auto p-3 flex-1">
+          {contributions.length === 0 ? (
+            <p className="text-sm text-ink-muted text-center py-10">No contributions recorded yet.</p>
+          ) : (
+            <ul className="space-y-1">
+              {pageItems.map((c, i) => (
+                <li key={pageStart + i} className="flex items-center gap-3 px-2.5 py-2.5 rounded-lg hover:bg-paper-soft transition-colors">
+                  <span className={`w-8 h-8 rounded-md flex items-center justify-center shrink-0 ${
+                    c.source === 'paycheck'
+                      ? 'bg-jade-50 text-jade-600 dark:bg-jade-900/50 dark:text-jade-400'
+                      : 'bg-paper-soft text-ink-soft'
+                  }`}>
+                    {c.source === 'paycheck' ? <Banknote className="w-4 h-4" /> : <Receipt className="w-4 h-4" />}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-ink leading-tight">{formatDateString(c.date)}</p>
+                    <p className="text-[11px] text-ink-muted truncate">
+                      {c.source === 'paycheck' ? 'From paycheck' : (c.description || 'Logged as expense')}
+                    </p>
+                  </div>
+                  <span className="num text-sm font-semibold text-ink shrink-0">{formatCurrency(c.amount)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* Pager — only when there's more than one page */}
+        {pageCount > 1 && (
+          <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-rule">
+            <span className="text-[11px] text-ink-muted font-mono">
+              {pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, contributions.length)} of {contributions.length}
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setPage(p => Math.max(0, p - 1))}
+                disabled={safePage <= 0}
+                className="p-1.5 rounded-md border border-rule hover:bg-paper-soft disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                aria-label="Previous page"
+              >
+                <ChevronLeft className="w-4 h-4 text-ink" />
+              </button>
+              <span className="text-[11px] text-ink-muted font-mono px-1.5 select-none">{safePage + 1}/{pageCount}</span>
+              <button
+                onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))}
+                disabled={safePage >= pageCount - 1}
+                className="p-1.5 rounded-md border border-rule hover:bg-paper-soft disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                aria-label="Next page"
+              >
+                <ChevronRight className="w-4 h-4 text-ink" />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+/**
  * Net Worth = money on your wallet (cash on hand) + everything you've set aside.
  * The savings buckets (Emergency Fund, General Savings, Pag-IBIG MP2) are kept
  * separate but all count toward the total — so money you saved stops looking
@@ -300,6 +424,8 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
   const [wallet, setWallet] = useState(0);
   const [debit, setDebit] = useState(0);
   const [balancesLoaded, setBalancesLoaded] = useState(false);
+  // Which savings bucket's detail modal is open (null = none).
+  const [openBucket, setOpenBucket] = useState<{ bucket: SavingsBucket; title: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -325,14 +451,17 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
   };
 
   // Savings buckets — separate, but each contributes to total_savings.
+  // `bucket` maps the card to getSavingsContributions()'s bucket key.
   const buckets = [
-    { key: 'ef', label: 'Emergency Fund', value: savings.emergencyFund, icon: <Shield className="w-4 h-4" />, tone: 'jade' as const },
-    { key: 'gs', label: 'General Savings', value: savings.generalSavings, icon: <PiggyBank className="w-4 h-4" />, tone: 'jade' as const },
-    { key: 'mp2', label: 'Pag-IBIG MP2', value: savings.pagibigMP2, icon: <Landmark className="w-4 h-4" />, tone: 'gold' as const },
+    { key: 'ef', bucket: 'emergencyFund' as SavingsBucket, label: 'Emergency Fund', value: savings.emergencyFund, icon: <Shield className="w-4 h-4" />, tone: 'jade' as const },
+    { key: 'gs', bucket: 'generalSavings' as SavingsBucket, label: 'General Savings', value: savings.generalSavings, icon: <PiggyBank className="w-4 h-4" />, tone: 'jade' as const },
+    { key: 'mp2', bucket: 'pagibigMP2' as SavingsBucket, label: 'Pag-IBIG MP2', value: savings.pagibigMP2, icon: <Landmark className="w-4 h-4" />, tone: 'gold' as const },
     ...(savings.other > 0
-      ? [{ key: 'other', label: 'Other Savings', value: savings.other, icon: <Coins className="w-4 h-4" />, tone: 'neutral' as const }]
+      ? [{ key: 'other', bucket: 'other' as SavingsBucket, label: 'Other Savings', value: savings.other, icon: <Coins className="w-4 h-4" />, tone: 'neutral' as const }]
       : []),
   ];
+
+  const openDetail = (bucket: SavingsBucket, title: string) => setOpenBucket({ bucket, title });
 
   const toneClasses: Record<string, string> = {
     jade: 'bg-jade-50 text-jade-600 dark:bg-jade-900/50 dark:text-jade-400',
@@ -435,18 +564,33 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
           {buckets.map((b) => {
             const pct = savings.total > 0 ? `${Math.round((b.value / savings.total) * 100)}% of savings` : 'Counted as savings';
 
+            // Shared click behavior — every savings card opens its detail modal.
+            const clickProps = {
+              role: 'button' as const,
+              tabIndex: 0,
+              onClick: () => openDetail(b.bucket, b.label),
+              onKeyDown: (e: React.KeyboardEvent) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetail(b.bucket, b.label); }
+              },
+              'aria-label': `${b.label}: ${formatCurrency(b.value)}. View contribution dates.`,
+            };
+            const cardBase = 'cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:shadow-paper-lift hover:border-ink/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/20';
+
             // EF & GS — the full GoTyme VISA card artwork as a low-opacity background.
             // `meet` fits the whole card design inside (nothing cropped); a faint
             // cyan wash fills the letterbox so the card reads as one surface.
             if (b.key === 'ef' || b.key === 'gs') {
               return (
-                <div key={b.key} className="relative bg-paper rounded-xl border border-rule p-5 overflow-hidden min-h-[132px] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-paper-lift hover:border-ink/20">
+                <div key={b.key} {...clickProps} className={`relative bg-paper rounded-xl border border-rule p-5 overflow-hidden min-h-[132px] ${cardBase}`}>
                   <div className="absolute inset-0 bg-[#2ec4c9]/[0.06] pointer-events-none" />
                   <GoTymeCard className="absolute inset-0 w-full h-full opacity-[0.16] dark:opacity-25 pointer-events-none" />
                   <div className="relative">
                     <p className="text-xs font-medium text-ink-muted leading-tight mb-3">{b.label}</p>
                     <p className="num text-2xl font-semibold tracking-tight text-ink">{formatCurrency(b.value)}</p>
-                    <p className="text-[11px] text-ink-muted mt-1.5">{pct}</p>
+                    <p className="text-[11px] text-ink-muted mt-1.5 flex items-center justify-between">
+                      <span>{pct}</span>
+                      <span className="text-ink-soft/70 font-medium">View dates →</span>
+                    </p>
                   </div>
                 </div>
               );
@@ -455,19 +599,22 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
             // MP2 — the full Pag-IBIG MP2 logo replaces the corner icon, at full size.
             if (b.key === 'mp2') {
               return (
-                <div key={b.key} className="bg-paper rounded-xl border border-rule p-5 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-paper-lift hover:border-ink/20">
+                <div key={b.key} {...clickProps} className={`bg-paper rounded-xl border border-rule p-5 ${cardBase}`}>
                   <div className="flex items-start justify-between gap-3 mb-3">
                     <p className="text-xs font-medium text-ink-muted leading-tight pt-0.5">{b.label}</p>
                     <Mp2Logo className="h-12 w-auto shrink-0 rounded-lg" />
                   </div>
                   <p className="num text-2xl font-semibold tracking-tight text-ink">{formatCurrency(b.value)}</p>
-                  <p className="text-[11px] text-ink-muted mt-1.5">{pct}</p>
+                  <p className="text-[11px] text-ink-muted mt-1.5 flex items-center justify-between">
+                    <span>{pct}</span>
+                    <span className="text-ink-soft/70 font-medium">View dates →</span>
+                  </p>
                 </div>
               );
             }
 
             return (
-              <div key={b.key} className="bg-paper rounded-xl border border-rule p-5 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-paper-lift hover:border-ink/20">
+              <div key={b.key} {...clickProps} className={`bg-paper rounded-xl border border-rule p-5 ${cardBase}`}>
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-xs font-medium text-ink-muted leading-tight">{b.label}</p>
                   <span className={`${toneClasses[b.tone]} w-7 h-7 rounded-md flex items-center justify-center shrink-0`}>
@@ -475,7 +622,10 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
                   </span>
                 </div>
                 <p className="num text-2xl font-semibold tracking-tight text-ink">{formatCurrency(b.value)}</p>
-                <p className="text-[11px] text-ink-muted mt-1.5">{pct}</p>
+                <p className="text-[11px] text-ink-muted mt-1.5 flex items-center justify-between">
+                  <span>{pct}</span>
+                  <span className="text-ink-soft/70 font-medium">View dates →</span>
+                </p>
               </div>
             );
           })}
@@ -483,8 +633,18 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
         <p className="text-xs text-ink-muted mt-3 leading-relaxed">
           Emergency Fund and General Savings include both what you set aside from paychecks and any you logged as expenses.
           Pag-IBIG MP2 counts the contributions you tagged as MP2. All three are savings — money you own, not money spent.
+          Tap any card to see how much and when you set it aside.
         </p>
       </div>
+
+      {openBucket && (
+        <SavingsDetailModal
+          bucket={openBucket.bucket}
+          title={openBucket.title}
+          data={data}
+          onClose={() => setOpenBucket(null)}
+        />
+      )}
     </div>
   );
 };

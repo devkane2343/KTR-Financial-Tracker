@@ -147,6 +147,63 @@ export const getSavingsBreakdown = (
   };
 };
 
+/** Which savings bucket to itemize. */
+export type SavingsBucket = 'emergencyFund' | 'generalSavings' | 'pagibigMP2' | 'other';
+
+/** One dated contribution into a savings bucket. */
+export interface SavingsContribution {
+  /** YYYY-MM-DD */
+  date: string;
+  amount: number;
+  /** Where it came from: a paycheck deduction or a logged expense entry. */
+  source: 'paycheck' | 'expense';
+  /** Free-text note (expense description, or a paycheck label). */
+  description: string;
+}
+
+/**
+ * Itemize the individual dated contributions that make up one savings bucket,
+ * so the UI can show "how much and when" each amount was set aside.
+ * EF & General Savings pull from BOTH paycheck deduction columns AND expense
+ * rows; MP2 and "other" are expense rows only. Sorted newest-first.
+ */
+export const getSavingsContributions = (
+  bucket: SavingsBucket,
+  incomeHistory: IncomeEntry[],
+  expenses: Expense[],
+): SavingsContribution[] => {
+  const out: SavingsContribution[] = [];
+
+  const expenseCategory: Record<SavingsBucket, Category> = {
+    emergencyFund: Category.EmergencyFund,
+    generalSavings: Category.GeneralSavings,
+    pagibigMP2: Category.PagibigMP2,
+    other: Category.Savings,
+  };
+
+  // Expense-row contributions (all buckets).
+  expenses
+    .filter(e => e.category === expenseCategory[bucket])
+    .forEach(e => {
+      if (e.amount > 0) {
+        out.push({ date: e.date, amount: e.amount, source: 'expense', description: e.description || '' });
+      }
+    });
+
+  // Paycheck-deduction contributions (EF & GS only).
+  if (bucket === 'emergencyFund' || bucket === 'generalSavings') {
+    incomeHistory.forEach(inc => {
+      const amount = bucket === 'emergencyFund' ? (inc.emergencyFund || 0) : (inc.generalSavings || 0);
+      if (amount > 0) {
+        out.push({ date: inc.date, amount, source: 'paycheck', description: 'Set aside from paycheck' });
+      }
+    });
+  }
+
+  // Newest first (string compare works for YYYY-MM-DD).
+  return out.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+};
+
 /** Filter out savings categories (EF & General Savings) from expenses to get actual expenses only. */
 export const getActualExpenses = (expenses: Expense[]): Expense[] =>
   expenses.filter(e => !isSavingsCategory(e.category));
