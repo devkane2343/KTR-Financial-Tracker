@@ -10,7 +10,13 @@
       "Bash(timeout 10 npx vite build)",
       "Bash(npx vite *)",
       "Bash(curl *)",
-      "Bash(dir C:\\\\Users\\\\Itachi\\\\Desktop\\\\KTR-Financial-Tracker /b)"
+      "Bash(dir C:\\\\Users\\\\Itachi\\\\Desktop\\\\KTR-Financial-Tracker /b)",
+      "Bash(curl -s 'https://kyenrmybqheqmwegwddo.supabase.co/rest/v1/expenses?select=category,amount&limit=5' -H 'apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt5ZW5ybXlicWhlcW13ZWd3ZGRvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE0NjQ1NjIsImV4cCI6MjA3NzA0MDU2Mn0.jJqpI3a-hx29lWLAU964HfhKIfFbA_Qgn4imir0Elqw')",
+      "Bash(npx tsc *)",
+      "Bash(echo \"---EXIT:$?---\")",
+      "Bash(curl -s -o /dev/null -w \"port 5199: HTTP %{http_code}\\\\n\" --max-time 2 http://localhost:5199/)",
+      "PowerShell($conn = Get-NetTCPConnection -LocalPort 5199 -State Listen -ErrorAction SilentlyContinue; if \\($conn\\) { $conn | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue; \"Stopped PID $_\" } } else { \"No listener on 5199\" })",
+      "Bash(timeout 120 npx vite build)"
     ]
   }
 }

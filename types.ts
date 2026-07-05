@@ -11,6 +11,7 @@ export enum Category {
   Shopping = 'Shopping',
   Health = 'Health',
   Savings = 'Savings',
+  PagibigMP2 = 'Pag-IBIG MP2',
   Others = 'Others'
 }
 
@@ -66,6 +67,9 @@ export interface Expense {
   description: string;
 }
 
+/** Outcome of attempting to settle a bill, so the UI can give feedback. */
+export type PayResult = 'paid' | 'already-paid' | 'paid-off';
+
 export interface FinancialData {
   incomeHistory: IncomeEntry[];
   expenses: Expense[];
@@ -87,4 +91,4 @@ export interface Portfolio {
   updated_at?: string;
 }
 
-export type TabType = 'dashboard' | 'expenses' | 'analytics' | 'income' | 'bills' | 'portfolio' | 'profile' | 'admin';
+export type TabType = 'dashboard' | 'expenses' | 'analytics' | 'income' | 'bills' | 'networth' | 'portfolio' | 'profile' | 'admin';

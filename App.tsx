@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import type { User } from '@supabase/supabase-js';
-import { FinancialData, IncomeEntry, Expense, Bill, BillPayment, TabType } from './types';
+import { FinancialData, IncomeEntry, Expense, Bill, BillPayment, TabType, PayResult } from './types';
 import { addMonths, generateId, isBillPaidOff } from './lib/utils';
 import { SummaryCards } from './components/SummaryCards';
 import { IncomeForm } from './components/IncomeForm';
@@ -15,6 +15,7 @@ import { NotificationBar } from './components/NotificationBar';
 import { AdminGuard } from './components/AdminGuard';
 import { BillForm } from './components/BillForm';
 import { BillList } from './components/BillList';
+import { NetWorthTab } from './components/NetWorthTab';
 import { PrivacyNoticeModal } from './components/PrivacyNoticeModal';
 
 const AnalyticsView = lazy(() => import('./components/AnalyticsView').then((m) => ({ default: m.AnalyticsView })));
@@ -34,6 +35,7 @@ import {
   Shield,
   Briefcase,
   Receipt,
+  Wallet,
   Sun,
   Moon
 } from 'lucide-react';
@@ -86,6 +88,12 @@ const App: React.FC = () => {
   const dataRef = useRef(data);
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const profileDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Sliding indicator for the desktop nav — one pill that glides under the
+  // active tab instead of each button toggling its own background.
+  const navRef = useRef<HTMLElement>(null);
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [pill, setPill] = useState<{ left: number; width: number; ready: boolean }>({ left: 0, width: 0, ready: false });
 
   useEffect(() => {
     dataRef.current = data;
@@ -150,6 +158,23 @@ const App: React.FC = () => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Measure the active tab button and slide the pill under it. Re-runs on tab
+  // change, on admin-item toggle (changes the button set), and on resize (the
+  // labels hide below `lg`, so widths shift). useLayoutEffect avoids a flash.
+  useLayoutEffect(() => {
+    const move = () => {
+      const nav = navRef.current;
+      const btn = tabRefs.current[activeTab];
+      if (!nav || !btn) return;
+      const navBox = nav.getBoundingClientRect();
+      const btnBox = btn.getBoundingClientRect();
+      setPill({ left: btnBox.left - navBox.left, width: btnBox.width, ready: true });
+    };
+    move();
+    window.addEventListener('resize', move);
+    return () => window.removeEventListener('resize', move);
+  }, [activeTab, isAdmin]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -232,7 +257,14 @@ const App: React.FC = () => {
 
   const handleUpdateIncome = useCallback((income: IncomeEntry) => {
     setData(prev => {
-      const { bills, payments } = applyPaidBillsToBills(prev.bills, prev.billPayments, income.paidBills, income.date);
+      // Only apply bills that are newly checked on this edit. Re-applying the
+      // full paidBills list would re-pay (and over-advance) bills this entry
+      // already settled the first time around — which is what left bills like
+      // Life Insurance stuck with a payment logged for their current dueDate.
+      const previous = prev.incomeHistory.find(item => item.id === income.id);
+      const alreadyPaid = new Set((previous?.paidBills ?? []).map(pb => pb.billId));
+      const newlyPaid = (income.paidBills ?? []).filter(pb => !alreadyPaid.has(pb.billId));
+      const { bills, payments } = applyPaidBillsToBills(prev.bills, prev.billPayments, newlyPaid, income.date);
       return {
         ...prev,
         incomeHistory: prev.incomeHistory.map(item => item.id === income.id ? income : item),
@@ -302,13 +334,22 @@ const App: React.FC = () => {
     scheduleAutoSave();
   }, [scheduleAutoSave]);
 
-  const handlePayBill = useCallback((bill: Bill, paidDate: string) => {
+  const handlePayBill = useCallback((bill: Bill, paidDate: string): PayResult => {
+    // Decide the outcome up front so we can report it to the caller. The
+    // guards below mirror the ones inside setData; without surfacing them the
+    // Settle button was a silent no-op whenever a payment already existed for
+    // the bill's current dueDate (e.g. after an income entry paid it).
+    if (data.billPayments.some(p => p.billId === bill.id && p.dueDate === bill.dueDate)) {
+      return 'already-paid';
+    }
+    if (isBillPaidOff(bill, data.billPayments)) {
+      return 'paid-off';
+    }
     setData(prev => {
-      // Guard against double-payment for same dueDate
+      // Re-check against the latest state in case it changed since render.
       if (prev.billPayments.some(p => p.billId === bill.id && p.dueDate === bill.dueDate)) {
         return prev;
       }
-      // Guard against paying a finished loan
       if (isBillPaidOff(bill, prev.billPayments)) {
         return prev;
       }
@@ -326,7 +367,8 @@ const App: React.FC = () => {
       };
     });
     scheduleAutoSave();
-  }, [scheduleAutoSave]);
+    return 'paid';
+  }, [data.billPayments, scheduleAutoSave]);
 
   const handleSaveToSupabase = () => {
     performSave(data);
@@ -374,7 +416,7 @@ const App: React.FC = () => {
   );
 
   const dashboardContent = useMemo(() => (
-    <div className="space-y-8 animate-fade-up">
+    <div className="space-y-8">
       {HeroCard}
 
       <div>
@@ -506,6 +548,10 @@ const App: React.FC = () => {
     </div>
   ), [data.bills, data.billPayments, editingBill, handleAddBill, handleUpdateBill, handleDeleteBill, handlePayBill]);
 
+  const netWorthContent = useMemo(() => (
+    <NetWorthTab data={data} />
+  ), [data]);
+
   const adminContent = useMemo(() => (
     <AdminGuard>
       <AdminDashboard />
@@ -529,11 +575,21 @@ const App: React.FC = () => {
     return <AuthPage />;
   }
 
+  // Hidden panels are kept mounted (so lazy charts / wallet state survive) but
+  // pulled out of flow. The active panel gets a fresh enter animation each
+  // switch — keying the wrapper on `activeTab` restarts `tab-panel-active`.
+  const HIDDEN_PANEL = 'invisible absolute left-0 right-0 h-0 overflow-hidden pointer-events-none';
+  const panelProps = (tab: TabType, activeClass = '') =>
+    activeTab === tab
+      ? { key: tab, className: `${activeClass} tab-panel-active`.trim(), 'aria-hidden': false as const }
+      : { className: HIDDEN_PANEL, 'aria-hidden': true as const };
+
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
     { id: 'income', label: 'Income', icon: <History className="w-4 h-4" /> },
     { id: 'bills', label: 'Bills', icon: <Receipt className="w-4 h-4" /> },
     { id: 'expenses', label: 'Expenses', icon: <ReceiptText className="w-4 h-4" /> },
+    { id: 'networth', label: 'Net Worth', icon: <Wallet className="w-4 h-4" /> },
     { id: 'analytics', label: 'Analytics', icon: <ChartIcon className="w-4 h-4" /> },
     { id: 'portfolio', label: 'Portfolio', icon: <Briefcase className="w-4 h-4" /> },
     ...(isAdmin ? [{ id: 'admin', label: 'Admin', icon: <Shield className="w-4 h-4" /> }] : []),
@@ -554,17 +610,22 @@ const App: React.FC = () => {
             <span className="font-display text-[15px] text-ink tracking-tight hidden sm:inline">KTR Finance</span>
           </div>
 
-          <nav className="hidden md:flex items-center gap-0.5 mx-auto bg-paper-soft/70 border border-rule rounded-lg p-1">
+          <nav ref={navRef} className="relative hidden md:flex items-center gap-0.5 mx-auto bg-paper-soft/70 border border-rule rounded-lg p-1">
+            {/* Sliding pill — glides under the active tab. */}
+            <span
+              aria-hidden="true"
+              className={`absolute top-1 bottom-1 rounded-md bg-paper shadow-paper transition-[transform,width] duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] ${pill.ready ? 'opacity-100' : 'opacity-0'}`}
+              style={{ width: `${pill.width}px`, transform: `translateX(${pill.left}px)` }}
+            />
             {navItems.map((item) => {
               const isActive = activeTab === item.id;
               return (
                 <button
                   key={item.id}
+                  ref={(el) => { tabRefs.current[item.id] = el; }}
                   onClick={() => setActiveTab(item.id as TabType)}
-                  className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors ${
-                    isActive
-                      ? 'bg-paper text-ink shadow-paper'
-                      : 'text-ink-muted hover:text-ink'
+                  className={`relative z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[13px] font-medium transition-colors duration-200 ${
+                    isActive ? 'text-ink' : 'text-ink-muted hover:text-ink'
                   }`}
                 >
                   {item.icon}
@@ -689,14 +750,21 @@ const App: React.FC = () => {
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id as TabType)}
-              className={`flex flex-col items-center gap-0.5 flex-1 min-w-0 py-1.5 rounded-md transition-colors ${
+              className={`relative flex flex-col items-center gap-0.5 flex-1 min-w-0 py-1.5 rounded-md transition-colors duration-200 ${
                 isActive ? 'text-ink' : 'text-ink-muted'
               }`}
             >
-              <span className={`flex items-center justify-center transition-colors ${isActive ? 'text-ink' : 'text-ink-muted'}`}>
+              <span
+                className={`flex items-center justify-center transition-transform duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] ${isActive ? '-translate-y-0.5' : 'translate-y-0'}`}
+              >
                 {item.icon}
               </span>
-              <span className={`text-[10px] truncate max-w-[60px] ${isActive ? 'font-medium' : ''}`}>{item.label}</span>
+              <span className={`text-[10px] truncate max-w-[60px] transition-all duration-200 ${isActive ? 'font-medium' : ''}`}>{item.label}</span>
+              {/* Active indicator dot — fades/scales in under the active item. */}
+              <span
+                aria-hidden="true"
+                className={`absolute -top-0.5 h-1 w-1 rounded-full bg-ink transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] ${isActive ? 'opacity-100 scale-100' : 'opacity-0 scale-0'}`}
+              />
             </button>
           );
         })}
@@ -705,42 +773,47 @@ const App: React.FC = () => {
       <main className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 py-6 sm:py-8 relative">
 
         {/* Dashboard View */}
-        <div className={activeTab === 'dashboard' ? 'space-y-8' : 'invisible absolute left-0 right-0 h-0 overflow-hidden pointer-events-none'} aria-hidden={activeTab !== 'dashboard'}>
+        <div {...panelProps('dashboard', 'space-y-8')}>
           {dashboardContent}
         </div>
 
         {/* Income View */}
-        <div className={activeTab === 'income' ? '' : 'invisible absolute left-0 right-0 h-0 overflow-hidden pointer-events-none'} aria-hidden={activeTab !== 'income'}>
+        <div {...panelProps('income')}>
           {incomeContent}
         </div>
 
         {/* Bills View */}
-        <div className={activeTab === 'bills' ? '' : 'invisible absolute left-0 right-0 h-0 overflow-hidden pointer-events-none'} aria-hidden={activeTab !== 'bills'}>
+        <div {...panelProps('bills')}>
           {billsContent}
         </div>
 
         {/* Expenses View */}
-        <div className={activeTab === 'expenses' ? '' : 'invisible absolute left-0 right-0 h-0 overflow-hidden pointer-events-none'} aria-hidden={activeTab !== 'expenses'}>
+        <div {...panelProps('expenses')}>
           {expensesContent}
         </div>
 
+        {/* Net Worth View */}
+        <div {...panelProps('networth')}>
+          {netWorthContent}
+        </div>
+
         {/* Analytics View (lazy-loaded with recharts) */}
-        <div className={activeTab === 'analytics' ? '' : 'invisible absolute left-0 right-0 h-0 overflow-hidden pointer-events-none'} aria-hidden={activeTab !== 'analytics'}>
+        <div {...panelProps('analytics')}>
           {analyticsContent}
         </div>
 
         {/* Portfolio View - Display/Showcase */}
-        <div className={activeTab === 'portfolio' ? '' : 'invisible absolute left-0 right-0 h-0 overflow-hidden pointer-events-none'} aria-hidden={activeTab !== 'portfolio'}>
+        <div {...panelProps('portfolio')}>
           {portfolioContent}
         </div>
 
         {/* Profile View - Settings & Editor */}
-        <div className={activeTab === 'profile' ? '' : 'invisible absolute left-0 right-0 h-0 overflow-hidden pointer-events-none'} aria-hidden={activeTab !== 'profile'}>
+        <div {...panelProps('profile')}>
           {profileContent}
         </div>
 
         {/* Admin View */}
-        <div className={activeTab === 'admin' ? '' : 'invisible absolute left-0 right-0 h-0 overflow-hidden pointer-events-none'} aria-hidden={activeTab !== 'admin'}>
+        <div {...panelProps('admin')}>
           {adminContent}
         </div>
 

@@ -97,9 +97,55 @@ export const generateId = (): string => {
   return crypto.randomUUID();
 };
 
-/** Returns true if the expense is a savings category (Emergency Fund or General Savings). */
+/**
+ * Returns true if the expense is a savings category — money set aside, not spent.
+ * Covers Emergency Fund, General Savings, the generic Savings bucket, and Pag-IBIG MP2.
+ * Everything that reads this (SummaryCards, AnalyticsSummary, Net Worth tab) treats
+ * these as savings rather than expenses.
+ */
 export const isSavingsCategory = (category: string): boolean =>
-  category === Category.EmergencyFund || category === Category.GeneralSavings;
+  category === Category.EmergencyFund ||
+  category === Category.GeneralSavings ||
+  category === Category.Savings ||
+  category === Category.PagibigMP2;
+
+/** Savings split into its buckets, each summing both sources (income deductions + expense rows). */
+export interface SavingsBreakdown {
+  emergencyFund: number;
+  generalSavings: number;
+  pagibigMP2: number;
+  other: number;      // the generic "Savings" category
+  total: number;
+}
+
+/**
+ * Compute total savings broken into buckets, matching the SQL net_worth view.
+ * Emergency Fund and General Savings come from BOTH the income_history deduction
+ * columns AND expense rows; MP2 and "other" come from expense rows only.
+ */
+export const getSavingsBreakdown = (
+  incomeHistory: IncomeEntry[],
+  expenses: Expense[],
+): SavingsBreakdown => {
+  const emergencyFromIncome = incomeHistory.reduce((s, i) => s + (i.emergencyFund || 0), 0);
+  const generalFromIncome = incomeHistory.reduce((s, i) => s + (i.generalSavings || 0), 0);
+
+  const sumExpenses = (cat: Category) =>
+    expenses.filter(e => e.category === cat).reduce((s, e) => s + e.amount, 0);
+
+  const emergencyFund = emergencyFromIncome + sumExpenses(Category.EmergencyFund);
+  const generalSavings = generalFromIncome + sumExpenses(Category.GeneralSavings);
+  const pagibigMP2 = sumExpenses(Category.PagibigMP2);
+  const other = sumExpenses(Category.Savings);
+
+  return {
+    emergencyFund,
+    generalSavings,
+    pagibigMP2,
+    other,
+    total: emergencyFund + generalSavings + pagibigMP2 + other,
+  };
+};
 
 /** Filter out savings categories (EF & General Savings) from expenses to get actual expenses only. */
 export const getActualExpenses = (expenses: Expense[]): Expense[] =>

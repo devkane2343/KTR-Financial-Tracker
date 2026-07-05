@@ -1,6 +1,6 @@
 
 import React, { useMemo, useState } from 'react';
-import { Bill, BillPayment } from '../types';
+import { Bill, BillPayment, PayResult } from '../types';
 import {
   formatCurrency,
   formatDateString,
@@ -27,7 +27,7 @@ interface BillListProps {
   payments: BillPayment[];
   onDelete: (id: string) => void;
   onEdit: (bill: Bill) => void;
-  onPay: (bill: Bill, paidDate: string) => void;
+  onPay: (bill: Bill, paidDate: string) => PayResult;
 }
 
 const STATUS_META: Record<BillStatus, {
@@ -55,6 +55,7 @@ export const BillList: React.FC<BillListProps> = ({ bills, payments, onDelete, o
   const [payingBillId, setPayingBillId] = useState<string | null>(null);
   const [payDate, setPayDate] = useState(getLocalDateString());
   const [historyBillId, setHistoryBillId] = useState<string | null>(null);
+  const [payNote, setPayNote] = useState<{ billId: string; text: string } | null>(null);
   const today = getLocalDateString();
 
   const enriched = useMemo(() => bills.map(bill => ({ bill, status: getBillStatus(bill, payments, today) })), [bills, payments, today]);
@@ -75,8 +76,22 @@ export const BillList: React.FC<BillListProps> = ({ bills, payments, onDelete, o
   const paidAheadTotal = grouped['paid-ahead'].reduce((sum, b) => sum + b.amount, 0);
   const dueSoonTotal = grouped['due-soon'].reduce((sum, b) => sum + b.amount, 0) + grouped['overdue'].reduce((sum, b) => sum + b.amount, 0);
 
-  const startPaying = (id: string) => { setPayingBillId(id); setPayDate(getLocalDateString()); };
-  const handleConfirmPay = (bill: Bill) => { onPay(bill, payDate); setPayingBillId(null); };
+  const startPaying = (id: string) => { setPayingBillId(id); setPayDate(getLocalDateString()); setPayNote(null); };
+  const handleConfirmPay = (bill: Bill) => {
+    const result = onPay(bill, payDate);
+    setPayingBillId(null);
+    if (result === 'paid') {
+      setPayNote(null);
+    } else if (result === 'paid-off') {
+      setPayNote({ billId: bill.id, text: 'This loan is already fully paid off — nothing left to settle.' });
+    } else {
+      // 'already-paid'
+      setPayNote({
+        billId: bill.id,
+        text: `Already settled through ${formatDateString(bill.dueDate)}. Next payment isn't due yet, so there's nothing to settle right now.`,
+      });
+    }
+  };
   const handleCancelPay = () => setPayingBillId(null);
 
   const paymentsByBill = useMemo(() => {
@@ -215,6 +230,20 @@ export const BillList: React.FC<BillListProps> = ({ bills, payments, onDelete, o
               className="p-1.5 text-ink-muted hover:text-ink hover:bg-paper rounded-md transition-colors"
             >
               <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {payNote?.billId === bill.id && (
+          <div className="mt-3 flex items-start gap-2 p-2.5 bg-gold-50 dark:bg-gold-500/10 rounded-lg border border-gold-200 dark:border-gold-500/30 animate-fade-up">
+            <AlertCircle className="w-4 h-4 text-gold-600 dark:text-gold-400 shrink-0 mt-0.5" />
+            <p className="text-xs text-gold-800 dark:text-gold-300 flex-1">{payNote.text}</p>
+            <button
+              onClick={() => setPayNote(null)}
+              className="p-0.5 text-gold-600 hover:text-gold-800 dark:text-gold-400 rounded transition-colors"
+              aria-label="Dismiss"
+            >
+              <X className="w-3.5 h-3.5" />
             </button>
           </div>
         )}
