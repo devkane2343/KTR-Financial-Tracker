@@ -1,7 +1,13 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { FinancialData, IncomeEntry, Expense, Category } from '../types';
-import { getNetIncome, formatDateString, getDeductionsForEntry, isSavingsCategory } from './utils';
+import { FinancialData } from '../types';
+import {
+  getNetIncome,
+  formatDateString,
+  getDeductionsForEntry,
+  isSavingsCategory,
+  getSavingsBreakdown,
+} from './utils';
 
 interface CategoryTotal {
   category: string;
@@ -9,26 +15,51 @@ interface CategoryTotal {
   percentage: number;
 }
 
+/** Point-in-time net-worth inputs. Optional — the report still renders without them. */
+export interface NetWorthSnapshot {
+  wallet: number;
+  debit: number;
+  custom: { name: string; balance: number; liquidity: 'liquid' | 'nonliquid' }[];
+}
+
+// ---------------------------------------------------------------------------
+// Modern-minimal palette — near-black ink, one indigo accent, muted greys and
+// hairline rules. No heavy fills; hierarchy comes from weight and whitespace.
+// ---------------------------------------------------------------------------
+const INK: [number, number, number] = [24, 24, 27];       // zinc-900
+const MUTED: [number, number, number] = [113, 113, 122];  // zinc-500
+const FAINT: [number, number, number] = [161, 161, 170];  // zinc-400
+const RULE: [number, number, number] = [228, 228, 231];   // zinc-200
+const ACCENT: [number, number, number] = [79, 70, 229];   // indigo-600
+const POSITIVE: [number, number, number] = [22, 163, 74]; // green-600
+const NEGATIVE: [number, number, number] = [220, 38, 38]; // red-600
+
 // Custom currency formatter for Philippine Pesos with PHP symbol
 const formatCurrencyPHP = (amount: number): string => {
   const formatted = new Intl.NumberFormat('en-PH', {
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2
+    maximumFractionDigits: 2,
   }).format(Math.abs(amount));
   const sign = amount < 0 ? '-' : '';
   return `${sign}PHP ${formatted}`;
 };
 
-export const generateFinancialReportPDF = async (data: FinancialData, userName?: string) => {
+export const generateFinancialReportPDF = async (
+  data: FinancialData,
+  userName?: string,
+  netWorth?: NetWorthSnapshot,
+) => {
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
-  const margin = 14;
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 16;
+  const contentW = pageWidth - 2 * margin;
   let yPos = 20;
 
   // Load and add logo
   const logoUrl = '/logo.png';
   let logoDataUrl: string | null = null;
-  
+
   try {
     const response = await fetch(logoUrl);
     const blob = await response.blob();
@@ -41,380 +72,377 @@ export const generateFinancialReportPDF = async (data: FinancialData, userName?:
     console.warn('Could not load logo for PDF:', error);
   }
 
-  // Helper function to check if we need a new page
-  const checkNewPage = (requiredSpace: number = 20) => {
-    if (yPos + requiredSpace > doc.internal.pageSize.getHeight() - 20) {
+  // ---- small drawing helpers, all in the minimal style --------------------
+  const setColor = (c: [number, number, number]) => doc.setTextColor(c[0], c[1], c[2]);
+
+  const checkNewPage = (requiredSpace = 24) => {
+    if (yPos + requiredSpace > pageHeight - 22) {
       doc.addPage();
-      yPos = 20;
+      yPos = 22;
       return true;
     }
     return false;
   };
 
-  // Calculate all metrics
+  // Section heading: small indigo eyebrow tick + bold ink title + hairline rule.
+  const sectionHeading = (title: string) => {
+    checkNewPage(28);
+    doc.setFillColor(ACCENT[0], ACCENT[1], ACCENT[2]);
+    doc.rect(margin, yPos - 3.2, 2.4, 4.2, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12.5);
+    setColor(INK);
+    doc.text(title, margin + 5, yPos);
+    yPos += 3;
+    doc.setDrawColor(RULE[0], RULE[1], RULE[2]);
+    doc.setLineWidth(0.3);
+    doc.line(margin, yPos, pageWidth - margin, yPos);
+    yPos += 7;
+  };
+
+  const emptyNote = (msg: string) => {
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(9.5);
+    setColor(FAINT);
+    doc.text(msg, margin, yPos + 4);
+    yPos += 14;
+  };
+
+  // ===== METRICS ===========================================================
   const totalNetIncome = data.incomeHistory.reduce((sum, inc) => sum + getNetIncome(inc), 0);
   const totalExpenses = data.expenses
-    .filter(exp => !isSavingsCategory(exp.category))
+    .filter((exp) => !isSavingsCategory(exp.category))
     .reduce((sum, exp) => sum + exp.amount, 0);
   const netBalance = totalNetIncome - totalExpenses;
   const incomeCount = data.incomeHistory.length || 1;
   const averageNetIncome = totalNetIncome / incomeCount;
+  const savingsRate = totalNetIncome > 0 ? (netBalance / totalNetIncome) * 100 : 0;
 
-  // Calculate date range
+  // Date range
   const allDates: Date[] = [];
-  data.incomeHistory.forEach(inc => {
+  data.incomeHistory.forEach((inc) => {
     const [y, m, d] = inc.date.split('-').map(Number);
     allDates.push(new Date(y, m - 1, d));
   });
-  data.expenses.forEach(exp => {
+  data.expenses.forEach((exp) => {
     const [y, m, d] = exp.date.split('-').map(Number);
     allDates.push(new Date(y, m - 1, d));
   });
 
   let dateRange = 'No data';
   if (allDates.length > 0) {
-    const earliest = new Date(Math.min(...allDates.map(d => d.getTime())));
-    const latest = new Date(Math.max(...allDates.map(d => d.getTime())));
-    const formatDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    dateRange = earliest.getTime() === latest.getTime() ? formatDate(earliest) : `${formatDate(earliest)} – ${formatDate(latest)}`;
+    const earliest = new Date(Math.min(...allDates.map((d) => d.getTime())));
+    const latest = new Date(Math.max(...allDates.map((d) => d.getTime())));
+    const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    dateRange = earliest.getTime() === latest.getTime() ? fmt(earliest) : `${fmt(earliest)} - ${fmt(latest)}`;
   }
 
-  // Calculate category totals
+  // Category totals
   const categoryMap = new Map<string, number>();
   data.expenses
-    .filter(exp => !isSavingsCategory(exp.category))
-    .forEach(exp => {
+    .filter((exp) => !isSavingsCategory(exp.category))
+    .forEach((exp) => {
       categoryMap.set(exp.category, (categoryMap.get(exp.category) || 0) + exp.amount);
     });
-
   const categoryTotals: CategoryTotal[] = Array.from(categoryMap.entries())
     .map(([category, amount]) => ({
       category,
       amount,
-      percentage: totalExpenses > 0 ? (amount / totalExpenses) * 100 : 0
+      percentage: totalExpenses > 0 ? (amount / totalExpenses) * 100 : 0,
     }))
     .sort((a, b) => b.amount - a.amount);
 
-  // ===== HEADER =====
-  doc.setFillColor(220, 38, 38); // Red-600
-  doc.rect(0, 0, pageWidth, 40, 'F');
-  
-  // Add logo to header if available - centered with title
+  // ===== HEADER (clean, on white; thin accent rule) ========================
   if (logoDataUrl) {
     try {
-      const logoSize = 28;
-      const logoX = margin;
-      const logoY = 6;
-      doc.addImage(logoDataUrl, 'PNG', logoX, logoY, logoSize, logoSize);
+      doc.addImage(logoDataUrl, 'PNG', margin, yPos - 6, 16, 16);
     } catch (error) {
       console.warn('Could not add logo to PDF:', error);
     }
   }
-  
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(24);
+  const titleX = logoDataUrl ? margin + 21 : margin;
   doc.setFont('helvetica', 'bold');
-  const titleX = logoDataUrl ? margin + 33 : margin;
-  doc.text('KTR Financial Tracker', titleX, 16);
-  
-  doc.setFontSize(13);
+  doc.setFontSize(19);
+  setColor(INK);
+  doc.text('Fintech', titleX, yPos);
   doc.setFont('helvetica', 'normal');
-  doc.text('Financial Report', titleX, 26);
-  
-  // Add currency indicator
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'italic');
-  doc.text('All amounts in Philippine Peso (PHP)', titleX, 33);
+  doc.setFontSize(10.5);
+  setColor(MUTED);
+  doc.text('Financial Report', titleX, yPos + 6.5);
+  yPos += 14;
 
-  // Reset text color
-  doc.setTextColor(0, 0, 0);
-  yPos = 50;
+  // Accent rule under the header
+  doc.setFillColor(ACCENT[0], ACCENT[1], ACCENT[2]);
+  doc.rect(margin, yPos, contentW, 0.8, 'F');
+  yPos += 7;
 
-  // ===== USER INFO & DATE RANGE =====
-  doc.setFontSize(10);
-  doc.setTextColor(100, 100, 100);
-  doc.text(`Generated: ${new Date().toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short' })}`, margin, yPos);
-  yPos += 5;
-  
-  if (userName) {
-    doc.text(`Prepared for: ${userName}`, margin, yPos);
-    yPos += 5;
+  // Meta line: period · generated · prepared-for, in muted grey
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.6);
+  setColor(MUTED);
+  const generated = new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+  const metaLeft = `Period: ${dateRange}`;
+  const metaRight = `Generated ${generated}${userName ? `  •  Prepared for ${userName}` : ''}`;
+  doc.text(metaLeft, margin, yPos);
+  doc.text('All amounts in Philippine Peso (PHP)', margin, yPos + 4.5);
+  doc.text(metaRight, pageWidth - margin, yPos, { align: 'right' });
+  yPos += 14;
+
+  // ===== KPI ROW (four hairline cells) =====================================
+  const kpis: { label: string; value: string; color: [number, number, number]; sub?: string }[] = [
+    { label: 'NET INCOME', value: formatCurrencyPHP(totalNetIncome), color: INK, sub: `${incomeCount} ${incomeCount === 1 ? 'paycheck' : 'paychecks'}` },
+    { label: 'EXPENSES', value: formatCurrencyPHP(totalExpenses), color: INK, sub: `${data.expenses.length} ${data.expenses.length === 1 ? 'txn' : 'txns'}` },
+    { label: 'NET BALANCE', value: formatCurrencyPHP(netBalance), color: netBalance >= 0 ? POSITIVE : NEGATIVE, sub: `${savingsRate >= 0 ? '+' : ''}${savingsRate.toFixed(0)}% of income` },
+    { label: 'AVG / PAYCHECK', value: formatCurrencyPHP(averageNetIncome), color: INK, sub: 'net' },
+  ];
+
+  const gap = 4;
+  const cellW = (contentW - gap * (kpis.length - 1)) / kpis.length;
+  const cellH = 24;
+  kpis.forEach((kpi, i) => {
+    const x = margin + i * (cellW + gap);
+    doc.setDrawColor(RULE[0], RULE[1], RULE[2]);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(x, yPos, cellW, cellH, 1.6, 1.6, 'S');
+    // top accent tick
+    doc.setFillColor(ACCENT[0], ACCENT[1], ACCENT[2]);
+    doc.rect(x + 4, yPos + 4.6, 5, 0.8, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.6);
+    setColor(FAINT);
+    doc.text(kpi.label, x + 4, yPos + 9.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10.5);
+    setColor(kpi.color);
+    doc.text(kpi.value, x + 4, yPos + 15.5);
+    if (kpi.sub) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.6);
+      setColor(MUTED);
+      doc.text(kpi.sub, x + 4, yPos + 20.5);
+    }
+  });
+  yPos += cellH + 14;
+
+  // Shared table styling — minimal: plain theme, thin bottom rules, ink header.
+  const tableBase = {
+    theme: 'plain' as const,
+    headStyles: {
+      fillColor: [255, 255, 255] as [number, number, number],
+      textColor: FAINT,
+      fontStyle: 'bold' as const,
+      fontSize: 7.4,
+      cellPadding: { top: 1, bottom: 3, left: 2, right: 2 },
+      lineColor: INK,
+      lineWidth: { bottom: 0.4 } as any,
+    },
+    styles: {
+      fontSize: 8.6,
+      cellPadding: { top: 3, bottom: 3, left: 2, right: 2 },
+      lineColor: RULE,
+      lineWidth: { bottom: 0.2 } as any,
+      textColor: INK,
+    },
+    margin: { left: margin, right: margin },
+  };
+
+  // ===== NET WORTH (point-in-time, labeled "as of today") ==================
+  if (netWorth) {
+    const savings = getSavingsBreakdown(data.incomeHistory, data.expenses);
+    const customTotal = netWorth.custom.reduce((s, c) => s + c.balance, 0);
+    const customNonLiquid = netWorth.custom
+      .filter((c) => c.liquidity === 'nonliquid')
+      .reduce((s, c) => s + c.balance, 0);
+    const savingsTotal = savings.total + customTotal;
+    const nw = netWorth.wallet + netWorth.debit + savingsTotal;
+    const nonLiquid = savings.pagibigMP2 + customNonLiquid;
+    const liquid = nw - nonLiquid;
+    const liquidPct = nw > 0 ? Math.round((liquid / nw) * 100) : 0;
+
+    sectionHeading('Net Worth');
+    // "as of today" clarifier — balances are point-in-time, not period-scoped.
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(8);
+    setColor(FAINT);
+    doc.text(`Balances as of ${new Date().toLocaleDateString('en-US', { dateStyle: 'medium' })} (not affected by the report period)`, margin, yPos);
+    yPos += 8;
+
+    // Headline net-worth figure + liquid/non-liquid split
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    setColor(FAINT);
+    doc.text('TOTAL NET WORTH', margin, yPos);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(18);
+    setColor(INK);
+    doc.text(formatCurrencyPHP(nw), margin, yPos + 8);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.4);
+    setColor(MUTED);
+    doc.text(
+      `${liquidPct}% liquid  ${formatCurrencyPHP(liquid)}      ${100 - liquidPct}% non-liquid  ${formatCurrencyPHP(nonLiquid)}`,
+      margin,
+      yPos + 14,
+    );
+    yPos += 22;
+
+    // Breakdown table — every pot + custom cards
+    const nwRows: (string | { content: string; styles?: any })[][] = [
+      ['Wallet (cash)', 'Liquid', formatCurrencyPHP(netWorth.wallet)],
+      ['Debit Card', 'Liquid', formatCurrencyPHP(netWorth.debit)],
+      ['Emergency Fund', 'Liquid', formatCurrencyPHP(savings.emergencyFund)],
+      ['General Savings', 'Liquid', formatCurrencyPHP(savings.generalSavings)],
+      ['Pag-IBIG MP2', 'Non-liquid', formatCurrencyPHP(savings.pagibigMP2)],
+    ];
+    if (savings.other > 0) nwRows.push(['Other Savings', 'Liquid', formatCurrencyPHP(savings.other)]);
+    netWorth.custom.forEach((c) =>
+      nwRows.push([c.name, c.liquidity === 'nonliquid' ? 'Non-liquid' : 'Liquid', formatCurrencyPHP(c.balance)]),
+    );
+
+    autoTable(doc, {
+      ...tableBase,
+      startY: yPos,
+      head: [['Account', 'Liquidity', 'Balance']],
+      body: nwRows as any,
+      foot: [['Total', '', formatCurrencyPHP(nw)]],
+      footStyles: {
+        fontStyle: 'bold',
+        fontSize: 9,
+        textColor: INK,
+        fillColor: [250, 250, 251],
+        cellPadding: { top: 3, bottom: 3, left: 2, right: 2 },
+        lineColor: INK,
+        lineWidth: { top: 0.4 } as any,
+      },
+      columnStyles: {
+        0: { cellWidth: 'auto' },
+        1: { cellWidth: 34, textColor: MUTED, fontSize: 8 },
+        2: { halign: 'right', cellWidth: 45, fontStyle: 'bold' },
+      },
+    });
+    yPos = (doc as any).lastAutoTable.finalY + 12;
   }
-  
-  doc.text(`Report Period: ${dateRange}`, margin, yPos);
-  yPos += 12;
 
-  // ===== EXECUTIVE SUMMARY =====
-  doc.setFontSize(14);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(0, 0, 0);
-  doc.text('Executive Summary', margin, yPos);
-  yPos += 8;
-
-  // Summary metrics in a clean box
-  doc.setDrawColor(220, 38, 38);
-  doc.setLineWidth(0.5);
-  doc.setFillColor(255, 255, 255);
-  doc.roundedRect(margin, yPos, pageWidth - 2 * margin, 50, 3, 3, 'FD');
-
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(60, 60, 60);
-  
-  const col1X = margin + 6;
-  const col2X = pageWidth / 2 + 6;
-  let boxY = yPos + 10;
-
-  // Column 1
-  doc.text('Total Net Income:', col1X, boxY);
-  doc.setFontSize(14);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(16, 185, 129); // Emerald-600
-  doc.text(formatCurrencyPHP(totalNetIncome), col1X, boxY + 6);
-  boxY += 15;
-
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(60, 60, 60);
-  doc.text('Average Net Income:', col1X, boxY);
-  doc.setFontSize(14);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(79, 70, 229); // Indigo-600
-  doc.text(formatCurrencyPHP(averageNetIncome), col1X, boxY + 6);
-  boxY += 10;
-
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(120, 120, 120);
-  doc.setFontSize(8);
-  doc.text(`Based on ${incomeCount} ${incomeCount === 1 ? 'paycheck' : 'paychecks'}`, col1X, boxY + 3);
-
-  // Column 2
-  boxY = yPos + 10;
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(60, 60, 60);
-  doc.text('Total Expenses:', col2X, boxY);
-  doc.setFontSize(14);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(245, 158, 11); // Amber-600
-  doc.text(formatCurrencyPHP(totalExpenses), col2X, boxY + 6);
-  boxY += 15;
-
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(60, 60, 60);
-  doc.text('Net Balance:', col2X, boxY);
-  doc.setFontSize(14);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(netBalance >= 0 ? 16 : 220, netBalance >= 0 ? 185 : 38, netBalance >= 0 ? 129 : 38);
-  doc.text(formatCurrencyPHP(netBalance), col2X, boxY + 6);
-  boxY += 10;
-
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(120, 120, 120);
-  doc.setFontSize(8);
-  doc.text(`${data.expenses.length} ${data.expenses.length === 1 ? 'transaction' : 'transactions'}`, col2X, boxY + 3);
-
-  yPos += 60;
-
-  // ===== INCOME BREAKDOWN =====
-  checkNewPage(40);
-  doc.setFontSize(14);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(0, 0, 0);
-  doc.text('Income Breakdown', margin, yPos);
-  yPos += 5;
-
+  // ===== INCOME BREAKDOWN ==================================================
+  sectionHeading('Income Breakdown');
   if (data.incomeHistory.length > 0) {
     const incomeTableData = data.incomeHistory
+      .slice()
       .sort((a, b) => b.date.localeCompare(a.date))
-      .map(income => [
+      .map((income) => [
         formatDateString(income.date),
         formatCurrencyPHP(income.weeklySalary),
         formatCurrencyPHP(getDeductionsForEntry(income)),
-        formatCurrencyPHP(getNetIncome(income))
+        formatCurrencyPHP(getNetIncome(income)),
       ]);
 
     autoTable(doc, {
+      ...tableBase,
       startY: yPos,
-      head: [['Date', 'Gross Salary', 'Total Deductions', 'Net Income']],
+      head: [['Date', 'Gross Salary', 'Deductions', 'Net Income']],
       body: incomeTableData,
-      theme: 'grid',
-      headStyles: { 
-        fillColor: [220, 38, 38], 
-        textColor: [255, 255, 255], 
-        fontStyle: 'bold',
-        fontSize: 10,
-        halign: 'center'
-      },
-      styles: { 
-        fontSize: 9, 
-        cellPadding: 4,
-        lineColor: [220, 220, 220],
-        lineWidth: 0.1
-      },
       columnStyles: {
-        0: { cellWidth: 40, halign: 'center' },
-        1: { halign: 'right', cellWidth: 45 },
-        2: { halign: 'right', cellWidth: 45 },
-        3: { halign: 'right', fontStyle: 'bold', cellWidth: 45, textColor: [16, 185, 129] }
+        0: { cellWidth: 42 },
+        1: { halign: 'right', cellWidth: 'auto' },
+        2: { halign: 'right', cellWidth: 'auto' },
+        3: { halign: 'right', fontStyle: 'bold', cellWidth: 'auto', textColor: POSITIVE },
       },
-      margin: { left: margin, right: margin },
-      alternateRowStyles: { fillColor: [250, 250, 250] }
     });
-
-    yPos = (doc as any).lastAutoTable.finalY + 10;
+    yPos = (doc as any).lastAutoTable.finalY + 12;
   } else {
-    doc.setFontSize(10);
-    doc.setTextColor(150, 150, 150);
-    doc.setFont('helvetica', 'italic');
-    doc.text('No income entries recorded.', margin, yPos + 5);
-    yPos += 15;
+    emptyNote('No income entries recorded for this period.');
   }
 
-  // ===== EXPENSE CATEGORY ANALYSIS =====
-  checkNewPage(50);
-  doc.setFontSize(14);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(0, 0, 0);
-  doc.text('Expense Category Analysis', margin, yPos);
-  yPos += 5;
-
+  // ===== EXPENSE CATEGORY ANALYSIS ========================================
+  sectionHeading('Expense Category Analysis');
   if (categoryTotals.length > 0) {
-    const categoryTableData = categoryTotals.map(cat => [
+    // A slim proportion bar rendered inside the % column via a custom hook.
+    const categoryTableData = categoryTotals.map((cat) => [
       cat.category,
       formatCurrencyPHP(cat.amount),
-      `${cat.percentage.toFixed(1)}%`
+      `${cat.percentage.toFixed(1)}%`,
     ]);
 
     autoTable(doc, {
+      ...tableBase,
       startY: yPos,
-      head: [['Category', 'Total Amount', '% of Total']],
+      head: [['Category', 'Amount', 'Share']],
       body: categoryTableData,
-      theme: 'grid',
-      headStyles: { 
-        fillColor: [220, 38, 38], 
-        textColor: [255, 255, 255], 
-        fontStyle: 'bold',
-        fontSize: 10,
-        halign: 'center'
-      },
-      styles: { 
-        fontSize: 9, 
-        cellPadding: 4,
-        lineColor: [220, 220, 220],
-        lineWidth: 0.1
-      },
       columnStyles: {
-        0: { cellWidth: 80 },
-        1: { halign: 'right', cellWidth: 55, fontStyle: 'bold', textColor: [245, 158, 11] },
-        2: { halign: 'center', cellWidth: 35 }
+        0: { cellWidth: 'auto' },
+        1: { halign: 'right', cellWidth: 50, fontStyle: 'bold' },
+        2: { halign: 'right', cellWidth: 40, textColor: MUTED },
       },
-      margin: { left: margin, right: margin },
-      alternateRowStyles: { fillColor: [250, 250, 250] }
+      // Draw a faint indigo proportion bar behind the Share cell.
+      didParseCell: (hook) => {
+        if (hook.section === 'body' && hook.column.index === 2) {
+          (hook.cell as any)._pct = categoryTotals[hook.row.index]?.percentage ?? 0;
+        }
+      },
+      didDrawCell: (hook) => {
+        if (hook.section === 'body' && hook.column.index === 2) {
+          const pct = (hook.cell as any)._pct ?? 0;
+          const barMax = hook.cell.width - 4;
+          const barW = Math.max(0.5, (pct / 100) * barMax);
+          doc.setFillColor(ACCENT[0], ACCENT[1], ACCENT[2]);
+          // thin bar hugging the bottom of the cell
+          doc.rect(hook.cell.x + 2, hook.cell.y + hook.cell.height - 1.6, barW, 0.8, 'F');
+        }
+      },
     });
-
-    yPos = (doc as any).lastAutoTable.finalY + 10;
+    yPos = (doc as any).lastAutoTable.finalY + 12;
   } else {
-    doc.setFontSize(10);
-    doc.setTextColor(150, 150, 150);
-    doc.setFont('helvetica', 'italic');
-    doc.text('No expenses recorded.', margin, yPos + 5);
-    yPos += 15;
+    emptyNote('No expenses recorded for this period.');
   }
 
-  // ===== DETAILED EXPENSE TRANSACTIONS =====
-  checkNewPage(50);
-  doc.setFontSize(14);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(0, 0, 0);
-  doc.text('Detailed Expense Transactions', margin, yPos);
-  yPos += 5;
-
+  // ===== DETAILED EXPENSE TRANSACTIONS ====================================
+  sectionHeading('Detailed Expense Transactions');
   if (data.expenses.length > 0) {
     const expenseTableData = data.expenses
+      .slice()
       .sort((a, b) => b.date.localeCompare(a.date))
-      .map(expense => [
+      .map((expense) => [
         formatDateString(expense.date),
         expense.category,
-        expense.description.substring(0, 40) + (expense.description.length > 40 ? '...' : ''),
-        formatCurrencyPHP(expense.amount)
+        expense.description.substring(0, 42) + (expense.description.length > 42 ? '…' : ''),
+        formatCurrencyPHP(expense.amount),
       ]);
 
     autoTable(doc, {
+      ...tableBase,
       startY: yPos,
       head: [['Date', 'Category', 'Description', 'Amount']],
       body: expenseTableData,
-      theme: 'grid',
-      headStyles: { 
-        fillColor: [220, 38, 38], 
-        textColor: [255, 255, 255], 
-        fontStyle: 'bold',
-        fontSize: 9,
-        halign: 'center'
-      },
-      styles: { 
-        fontSize: 8, 
-        cellPadding: 3,
-        lineColor: [220, 220, 220],
-        lineWidth: 0.1
-      },
+      styles: { ...tableBase.styles, fontSize: 8 },
       columnStyles: {
-        0: { cellWidth: 30, halign: 'center' },
-        1: { cellWidth: 32 },
-        2: { cellWidth: 85 },
-        3: { halign: 'right', cellWidth: 30, fontStyle: 'bold', textColor: [220, 38, 38] }
+        0: { cellWidth: 30 },
+        1: { cellWidth: 34, textColor: MUTED },
+        2: { cellWidth: 'auto' },
+        3: { halign: 'right', cellWidth: 32, fontStyle: 'bold' },
       },
-      margin: { left: margin, right: margin },
-      alternateRowStyles: { fillColor: [250, 250, 250] }
     });
-
-    yPos = (doc as any).lastAutoTable.finalY + 10;
+    yPos = (doc as any).lastAutoTable.finalY + 12;
   } else {
-    doc.setFontSize(10);
-    doc.setTextColor(150, 150, 150);
-    doc.setFont('helvetica', 'italic');
-    doc.text('No expense transactions recorded.', margin, yPos + 5);
-    yPos += 15;
+    emptyNote('No expense transactions recorded for this period.');
   }
 
-  // ===== FOOTER ON ALL PAGES =====
+  // ===== FOOTER (thin rule, muted, page numbers) ===========================
   const pageCount = doc.getNumberOfPages();
-  const pageHeight = doc.internal.pageSize.getHeight();
-  
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
-    
-    // Add subtle line above footer
-    doc.setDrawColor(220, 220, 220);
-    doc.setLineWidth(0.5);
-    doc.line(margin, pageHeight - 15, pageWidth - margin, pageHeight - 15);
-    
-    doc.setFontSize(8);
-    doc.setTextColor(150, 150, 150);
-    doc.text(
-      `Page ${i} of ${pageCount}`,
-      pageWidth / 2,
-      pageHeight - 8,
-      { align: 'center' }
-    );
-    doc.text(
-      'KTR Financial Tracker | Confidential',
-      margin,
-      pageHeight - 8
-    );
-    
-    // Currency note on right
-    doc.text(
-      'Currency: PHP',
-      pageWidth - margin - 30,
-      pageHeight - 8
-    );
+    doc.setDrawColor(RULE[0], RULE[1], RULE[2]);
+    doc.setLineWidth(0.3);
+    doc.line(margin, pageHeight - 14, pageWidth - margin, pageHeight - 14);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.6);
+    setColor(FAINT);
+    doc.text('Fintech  •  Confidential', margin, pageHeight - 8.5);
+    doc.text(`Page ${i} of ${pageCount}`, pageWidth / 2, pageHeight - 8.5, { align: 'center' });
+    doc.text('PHP', pageWidth - margin, pageHeight - 8.5, { align: 'right' });
   }
 
-  // Generate filename with date
-  const fileName = `KTR-Financial-Report-${new Date().toISOString().split('T')[0]}.pdf`;
-  
-  // Download the PDF
+  const fileName = `Fintech-Financial-Report-${new Date().toISOString().split('T')[0]}.pdf`;
   doc.save(fileName);
 };

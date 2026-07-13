@@ -288,6 +288,75 @@ export async function deleteBillFromSupabase(billId: string): Promise<{ ok: bool
   }
 }
 
+/**
+ * Permanently remove an income entry from Supabase.
+ * Like bills, the autosave path only upserts, so a delete in the UI would
+ * otherwise reappear on the next load. Local-only entries (non-UUID ids that
+ * were never persisted) are a no-op.
+ */
+export async function deleteIncomeFromSupabase(incomeId: string): Promise<{ ok: boolean; error?: string }> {
+  const url = import.meta.env.VITE_SUPABASE_URL;
+  const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  if (!url || !key) {
+    return { ok: false, error: 'Missing Supabase config.' };
+  }
+
+  // Never saved to Supabase — nothing to delete remotely.
+  if (!isValidUUID(incomeId)) {
+    return { ok: true };
+  }
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return { ok: false, error: 'You must be signed in to delete.' };
+  }
+
+  try {
+    const { error } = await supabase
+      .from('income_history')
+      .delete()
+      .eq('id', incomeId);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: message };
+  }
+}
+
+/**
+ * Permanently remove an expense from Supabase. Same rationale as
+ * {@link deleteIncomeFromSupabase} — autosave only upserts.
+ */
+export async function deleteExpenseFromSupabase(expenseId: string): Promise<{ ok: boolean; error?: string }> {
+  const url = import.meta.env.VITE_SUPABASE_URL;
+  const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  if (!url || !key) {
+    return { ok: false, error: 'Missing Supabase config.' };
+  }
+
+  if (!isValidUUID(expenseId)) {
+    return { ok: true };
+  }
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return { ok: false, error: 'You must be signed in to delete.' };
+  }
+
+  try {
+    const { error } = await supabase
+      .from('expenses')
+      .delete()
+      .eq('id', expenseId);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: message };
+  }
+}
+
 export type LoadResult = { ok: true; data: FinancialData } | { ok: false; error: string };
 
 /** Load income and expenses for the current user from Supabase (RLS filters by auth.uid()). */

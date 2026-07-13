@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { FinancialData, IncomeEntry, Expense, Bill, BillPayment, TabType, PayResult } from './types';
-import { addMonths, generateId, isBillPaidOff } from './lib/utils';
+import { addMonths, generateId, isBillPaidOff, withBillExpenses } from './lib/utils';
 import { SummaryCards } from './components/SummaryCards';
 import { IncomeForm } from './components/IncomeForm';
 import { IncomeList } from './components/IncomeList';
@@ -37,10 +37,12 @@ import {
   Receipt,
   Wallet,
   Sun,
-  Moon
+  Moon,
+  Menu,
+  X
 } from 'lucide-react';
 import { supabase } from './lib/supabase';
-import { saveFinancialDataToSupabase, loadFinancialDataFromSupabase, deleteBillFromSupabase } from './lib/supabaseSave';
+import { saveFinancialDataToSupabase, loadFinancialDataFromSupabase, deleteBillFromSupabase, deleteIncomeFromSupabase, deleteExpenseFromSupabase } from './lib/supabaseSave';
 import { getProfilePictureUrl } from './lib/profilePicture';
 import { isUserAdmin } from './lib/adminUtils';
 import { usePrivacyNotice } from './hooks/usePrivacyNotice';
@@ -65,6 +67,7 @@ const App: React.FC = () => {
   const [saveError, setSaveError] = useState<string>('');
   const [saveSuccessCount, setSaveSuccessCount] = useState<{ income: number; expenses: number } | undefined>(undefined);
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [portfolioRefreshTrigger, setPortfolioRefreshTrigger] = useState(0);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -158,6 +161,20 @@ const App: React.FC = () => {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Mobile drawer: close on Escape, and lock body scroll while it's open so the
+  // page behind the overlay doesn't scroll under the user's finger.
+  useEffect(() => {
+    if (!isMobileMenuOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsMobileMenuOpen(false); };
+    document.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [isMobileMenuOpen]);
 
   // Measure the active tab button and slide the pill under it. Re-runs on tab
   // change, on admin-item toggle (changes the button set), and on resize (the
@@ -279,6 +296,14 @@ const App: React.FC = () => {
   const handleDeleteIncome = useCallback((id: string) => {
     setEditingIncome(prev => prev?.id === id ? null : prev);
     setData(prev => ({ ...prev, incomeHistory: prev.incomeHistory.filter(i => i.id !== id) }));
+    // Autosave only upserts, so we must explicitly delete the row from
+    // Supabase — otherwise it reappears on the next load/refresh.
+    deleteIncomeFromSupabase(id).then((res) => {
+      if (!res.ok) {
+        setSaveStatus('error');
+        setSaveError(res.error ?? 'Failed to delete income');
+      }
+    });
     scheduleAutoSave();
   }, [scheduleAutoSave]);
 
@@ -299,6 +324,14 @@ const App: React.FC = () => {
   const handleDeleteExpense = useCallback((id: string) => {
     setEditingExpense(prev => prev?.id === id ? null : prev);
     setData(prev => ({ ...prev, expenses: prev.expenses.filter(e => e.id !== id) }));
+    // Autosave only upserts, so we must explicitly delete the row from
+    // Supabase — otherwise it reappears on the next load/refresh.
+    deleteExpenseFromSupabase(id).then((res) => {
+      if (!res.ok) {
+        setSaveStatus('error');
+        setSaveError(res.error ?? 'Failed to delete expense');
+      }
+    });
     scheduleAutoSave();
   }, [scheduleAutoSave]);
 
@@ -415,6 +448,10 @@ const App: React.FC = () => {
     </div>
   );
 
+  // Fold paid bills into expenses so lifetime totals and charts count them.
+  // Bills/billPayments are preserved untouched for the upcoming-bills widget.
+  const dashboardData = useMemo(() => withBillExpenses(data), [data]);
+
   const dashboardContent = useMemo(() => (
     <div className="space-y-8">
       {HeroCard}
@@ -424,7 +461,7 @@ const App: React.FC = () => {
           <h2 className="text-sm font-medium text-ink">Lifetime totals</h2>
           <span className="text-xs text-ink-muted font-mono">since first entry</span>
         </div>
-        <SummaryCards data={data} />
+        <SummaryCards data={dashboardData} />
       </div>
 
       <Suspense fallback={
@@ -432,22 +469,10 @@ const App: React.FC = () => {
           <span className="w-6 h-6 border-2 border-ink/20 border-t-ink rounded-full animate-spin" />
         </div>
       }>
-        <DashboardCharts data={data} onGoToBills={() => setActiveTab('bills')} />
+        <DashboardCharts data={dashboardData} onGoToBills={() => setActiveTab('bills')} />
       </Suspense>
-
-      <div>
-        <h2 className="text-sm font-medium text-ink mb-4">Quick log</h2>
-        <div className="max-w-md">
-          <ExpenseForm
-            onAdd={handleAddExpense}
-            onUpdate={handleUpdateExpense}
-            editingExpense={editingExpense}
-            onCancelEdit={() => setEditingExpense(null)}
-          />
-        </div>
-      </div>
     </div>
-  ), [HeroCard, data, editingExpense, handleAddExpense, handleUpdateExpense, handleDeleteExpense]);
+  ), [HeroCard, dashboardData]);
 
   const incomeContent = useMemo(() => (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -490,7 +515,7 @@ const App: React.FC = () => {
       </div>
       <div className="lg:col-span-9">
          <ExpenseList
-           expenses={data.expenses}
+           expenses={dashboardData.expenses}
            onDelete={handleDeleteExpense}
            onEdit={(exp) => {
              setEditingExpense(exp);
@@ -499,7 +524,7 @@ const App: React.FC = () => {
          />
       </div>
     </div>
-  ), [data.expenses, editingExpense, handleAddExpense, handleUpdateExpense, handleDeleteExpense]);
+  ), [dashboardData.expenses, editingExpense, handleAddExpense, handleUpdateExpense, handleDeleteExpense]);
 
   const analyticsContent = useMemo(() => (
     <Suspense fallback={<div className="flex items-center justify-center py-16"><span className="w-6 h-6 border-2 border-ink/20 border-t-ink rounded-full animate-spin" /></div>}>
@@ -508,12 +533,10 @@ const App: React.FC = () => {
   ), [data]);
 
   const portfolioContent = useMemo(() => (
-    <div className="max-w-6xl mx-auto">
-      <PortfolioCard
-        onEdit={() => setActiveTab('profile')}
-        refreshTrigger={portfolioRefreshTrigger}
-      />
-    </div>
+    <PortfolioCard
+      onEdit={() => setActiveTab('profile')}
+      refreshTrigger={portfolioRefreshTrigger}
+    />
   ), [portfolioRefreshTrigger, setActiveTab]);
 
   const profileContent = useMemo(() => (
@@ -596,18 +619,29 @@ const App: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-paper-soft pb-24 md:pb-12 relative">
+    <div className="min-h-screen bg-paper-soft pb-28 md:pb-12 relative">
       {/* Privacy Notice Modal */}
       <PrivacyNoticeModal isOpen={showPrivacyNotice} onAccept={handlePrivacyAccept} />
 
       {/* Navigation Header */}
       <header className="bg-paper/85 backdrop-blur-md border-b border-rule sticky top-0 z-40">
-        <div className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 h-14 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5 cursor-pointer group shrink-0" onClick={() => setActiveTab('dashboard')}>
-            <div className="w-8 h-8 rounded-lg bg-ink flex items-center justify-center overflow-hidden">
-              <img src={LOGO_URL} className="w-5 h-5 object-contain invert brightness-0" alt="KTR" />
+        <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Hamburger — mobile only. Opens the slide-out nav drawer. */}
+            <button
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="md:hidden p-2 -ml-1 rounded-lg hover:bg-paper-soft text-ink-soft hover:text-ink transition-colors min-w-[40px] min-h-[40px] flex items-center justify-center"
+              aria-label="Open menu"
+              aria-expanded={isMobileMenuOpen}
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <div className="flex items-center gap-2.5 cursor-pointer group" onClick={() => setActiveTab('dashboard')}>
+              <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center">
+                <img src={LOGO_URL} className="w-full h-full object-contain" alt="Fintech" />
+              </div>
+              <span className="font-display text-[15px] text-ink tracking-tight hidden sm:inline">Fintech</span>
             </div>
-            <span className="font-display text-[15px] text-ink tracking-tight hidden sm:inline">KTR Finance</span>
           </div>
 
           <nav ref={navRef} className="relative hidden md:flex items-center gap-0.5 mx-auto bg-paper-soft/70 border border-rule rounded-lg p-1">
@@ -742,15 +776,17 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      {/* Mobile Bottom Navigation */}
-      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-paper/95 backdrop-blur-lg border-t border-rule px-2 pt-1.5 safe-pb flex justify-around items-stretch z-50">
+      {/* Mobile Bottom Navigation — all tabs stay visible; labels wrap rather
+          than truncate so two-word items like "Net Worth" read in full even at
+          360px with 8 items. Each cell keeps a >=48px tap target. */}
+      <nav className="md:hidden fixed bottom-0 inset-x-0 bg-paper/95 backdrop-blur-lg border-t border-rule px-1 pt-2 pb-1 safe-pb flex justify-around items-stretch z-50">
         {navItems.map((item) => {
           const isActive = activeTab === item.id;
           return (
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id as TabType)}
-              className={`relative flex flex-col items-center gap-0.5 flex-1 min-w-0 py-1.5 rounded-md transition-colors duration-200 ${
+              className={`relative flex flex-col items-center justify-start gap-0.5 flex-1 min-w-0 px-0.5 py-1.5 min-h-[48px] rounded-md transition-colors duration-200 ${
                 isActive ? 'text-ink' : 'text-ink-muted'
               }`}
             >
@@ -759,18 +795,101 @@ const App: React.FC = () => {
               >
                 {item.icon}
               </span>
-              <span className={`text-[10px] truncate max-w-[60px] transition-all duration-200 ${isActive ? 'font-medium' : ''}`}>{item.label}</span>
-              {/* Active indicator dot — fades/scales in under the active item. */}
+              <span className={`text-[10px] leading-[1.15] text-center transition-all duration-200 ${isActive ? 'font-medium' : ''}`}>{item.label}</span>
+              {/* Active indicator dot — fades/scales in under the active item.
+                  top-0 (not -top-0.5) keeps it clear of the border with pt-2. */}
               <span
                 aria-hidden="true"
-                className={`absolute -top-0.5 h-1 w-1 rounded-full bg-ink transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] ${isActive ? 'opacity-100 scale-100' : 'opacity-0 scale-0'}`}
+                className={`absolute top-0 h-1 w-1 rounded-full bg-ink transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] ${isActive ? 'opacity-100 scale-100' : 'opacity-0 scale-0'}`}
               />
             </button>
           );
         })}
       </nav>
 
-      <main className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 py-6 sm:py-8 relative">
+      {/* Mobile slide-out drawer — full navigation with roomy rows + account
+          actions. Complements the bottom bar (quick access) with a legible,
+          labelled menu. Mounted only while open so it doesn't trap focus/clicks. */}
+      {isMobileMenuOpen && (
+        <div className="md:hidden fixed inset-0 z-[60]" role="dialog" aria-modal="true" aria-label="Navigation menu">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-ink/40 backdrop-blur-sm animate-fade-in"
+            onClick={() => setIsMobileMenuOpen(false)}
+          />
+          {/* Panel — slides in from the left */}
+          <div className="absolute inset-y-0 left-0 w-[82%] max-w-xs bg-paper border-r border-rule shadow-paper-lift flex flex-col animate-fade-up">
+            {/* Header */}
+            <div className="h-14 px-4 flex items-center justify-between border-b border-rule shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center">
+                  <img src={LOGO_URL} className="w-full h-full object-contain" alt="Fintech" />
+                </div>
+                <span className="font-display text-[15px] text-ink tracking-tight">Fintech</span>
+              </div>
+              <button
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="p-2 -mr-1 rounded-lg hover:bg-paper-soft text-ink-muted hover:text-ink transition-colors min-w-[40px] min-h-[40px] flex items-center justify-center"
+                aria-label="Close menu"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Nav items */}
+            <nav className="flex-1 overflow-y-auto p-3 space-y-1">
+              {navItems.map((item) => {
+                const isActive = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => { setActiveTab(item.id as TabType); setIsMobileMenuOpen(false); }}
+                    className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors min-h-[48px] ${
+                      isActive ? 'bg-ink text-paper' : 'text-ink-soft hover:bg-paper-soft hover:text-ink'
+                    }`}
+                  >
+                    <span className="shrink-0">{item.icon}</span>
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+
+            {/* Account actions */}
+            <div className="border-t border-rule p-3 space-y-1 shrink-0 safe-pb">
+              <div className="px-3 py-2">
+                <p className="text-sm font-medium text-ink leading-tight truncate">
+                  {user.user_metadata?.full_name || 'Account'}
+                </p>
+                <p className="text-xs text-ink-muted font-mono truncate mt-0.5">{user.email}</p>
+              </div>
+              <button
+                onClick={() => { setActiveTab('profile'); setIsMobileMenuOpen(false); }}
+                className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-ink-soft hover:bg-paper-soft hover:text-ink transition-colors min-h-[48px]"
+              >
+                <UserIcon className="w-4 h-4 shrink-0 text-ink-muted" />
+                Profile &amp; portfolio
+              </button>
+              <button
+                onClick={() => { toggleTheme(); }}
+                className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-ink-soft hover:bg-paper-soft hover:text-ink transition-colors min-h-[48px]"
+              >
+                {theme === 'dark' ? <Sun className="w-4 h-4 shrink-0 text-ink-muted" /> : <Moon className="w-4 h-4 shrink-0 text-ink-muted" />}
+                {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+              </button>
+              <button
+                onClick={() => { supabase.auth.signOut(); setIsMobileMenuOpen(false); }}
+                className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm text-coral-600 hover:bg-coral-50 transition-colors min-h-[48px]"
+              >
+                <LogOut className="w-4 h-4 shrink-0" />
+                Sign out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <main className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 relative">
 
         {/* Dashboard View */}
         <div {...panelProps('dashboard', 'space-y-8')}>
@@ -819,12 +938,12 @@ const App: React.FC = () => {
 
       </main>
 
-      <footer className="w-full px-4 sm:px-6 lg:px-8 xl:px-12 pt-8 pb-6 mt-12">
+      <footer className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 pb-6 mt-12">
         <div className="hairline mb-5" />
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <img src={LOGO_URL} className="w-4 h-4 opacity-60" alt="" />
-            <p className="text-sm font-medium text-ink">KTR Finance</p>
+            <img src={LOGO_URL} className="w-5 h-5 rounded object-contain" alt="" />
+            <p className="text-sm font-medium text-ink">Fintech</p>
           </div>
           <p className="text-xs text-ink-muted">Encrypted &middot; Private &middot; Yours alone</p>
         </div>

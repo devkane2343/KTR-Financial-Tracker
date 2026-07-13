@@ -71,7 +71,7 @@ export const PrivacyNoticeModal: React.FC<PrivacyNoticeModalProps> = ({ isOpen, 
           </div>
           <div>
             <h2 className="text-base font-medium text-ink">Privacy notice</h2>
-            <p className="text-xs text-ink-muted">Welcome to KTR Finance</p>
+            <p className="text-xs text-ink-muted">Welcome to Fintech</p>
           </div>
         </div>
 

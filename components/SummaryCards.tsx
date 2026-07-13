@@ -153,7 +153,7 @@ export const SummaryCards: React.FC<SummaryCardsProps> = ({ data }) => {
               </div>
             </div>
 
-            <p className="num text-xl sm:text-2xl font-semibold tracking-tight leading-none text-ink">
+            <p className="num text-lg sm:text-2xl font-semibold tracking-tight leading-none text-ink">
               {card.value}
             </p>
             <p className="text-[11px] text-ink-muted mt-1.5 leading-tight">{card.secondary}</p>

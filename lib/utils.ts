@@ -1,4 +1,4 @@
-import { IncomeEntry, Category, Expense, Bill, BillPayment } from '../types';
+import { IncomeEntry, Category, Expense, Bill, BillPayment, FinancialData } from '../types';
 
 /** Today's date as YYYY-MM-DD in local time (for form defaults). Avoids UTC shift. */
 export const getLocalDateString = (): string => {
@@ -25,14 +25,21 @@ export const formatCurrency = (amount: number): string => {
   }).format(amount);
 };
 
-/** Total deductions for one salary entry (statutory + bill payments). */
-export const getDeductionsForEntry = (income: IncomeEntry | { sss: number; pagibig: number; philhealth: number; vul: number; emergencyFund?: number; generalSavings?: number; paidBills?: Array<{ amount: number }> }): number => {
-  const statutory = (income.sss || 0) + (income.pagibig || 0) + (income.philhealth || 0) + (income.vul || 0) + (income.emergencyFund || 0) + (income.generalSavings || 0);
-  const bills = ('paidBills' in income ? (income.paidBills ?? []) : []).reduce((sum, b) => sum + (b.amount || 0), 0);
-  return statutory + bills;
+/**
+ * Total deductions for one salary entry (statutory contributions + savings set
+ * aside from the paycheck).
+ *
+ * Bills checked off inside a paycheck are NOT counted here: bills are treated as
+ * expenses app-wide (see {@link withBillExpenses}), so counting them as a
+ * paycheck deduction too would subtract them twice from any net-balance figure.
+ * The paycheck's `paidBills` still drives bill settlement; it just no longer
+ * reduces net income.
+ */
+export const getDeductionsForEntry = (income: IncomeEntry | { sss: number; pagibig: number; philhealth: number; vul: number; emergencyFund?: number; generalSavings?: number }): number => {
+  return (income.sss || 0) + (income.pagibig || 0) + (income.philhealth || 0) + (income.vul || 0) + (income.emergencyFund || 0) + (income.generalSavings || 0);
 };
 
-export const getNetIncome = (income: IncomeEntry | { weeklySalary: number; sss: number; pagibig: number; philhealth: number; vul: number; emergencyFund?: number; generalSavings?: number; paidBills?: Array<{ amount: number }> }): number => {
+export const getNetIncome = (income: IncomeEntry | { weeklySalary: number; sss: number; pagibig: number; philhealth: number; vul: number; emergencyFund?: number; generalSavings?: number }): number => {
   const totalDeductions = getDeductionsForEntry(income);
   return Math.max(0, income.weeklySalary - totalDeductions);
 };
@@ -321,3 +328,36 @@ export const getMonthlyIncomeTotals = (incomeHistory: IncomeEntry[]): Map<string
 
 /** Returns true if the string is a valid UUID (so Supabase will accept it). */
 export const isValidUUID = (id: string): boolean => UUID_REGEX.test(id);
+
+/**
+ * Convert settled bill payments into synthetic Expense rows so bills count as
+ * expenses everywhere expenses are aggregated (totals, charts, reports, list).
+ *
+ * Each payment becomes one Expense dated by `paidDate`, under the single `Bills`
+ * category, tagged `isBillPayment` so the UI can render it read-only. The row id
+ * is prefixed to guarantee it never collides with a real expense id.
+ */
+export const billPaymentsAsExpenses = (
+  billPayments: BillPayment[],
+  bills: Bill[] = [],
+): Expense[] => {
+  const nameById = new Map(bills.map(b => [b.id, b.name]));
+  return billPayments.map(p => ({
+    id: `bill-payment:${p.id}`,
+    date: p.paidDate,
+    category: Category.Bills,
+    amount: p.amount,
+    description: nameById.get(p.billId) ?? 'Bill payment',
+    isBillPayment: true,
+  }));
+};
+
+/**
+ * Return a copy of the financial data with bill payments merged into `expenses`
+ * as synthetic rows. Views that consume this see bills as expenses without any
+ * per-view aggregation changes. Original arrays are left untouched.
+ */
+export const withBillExpenses = (data: FinancialData): FinancialData => ({
+  ...data,
+  expenses: [...data.expenses, ...billPaymentsAsExpenses(data.billPayments, data.bills)],
+});

@@ -1,8 +1,17 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FinancialData } from '../types';
 import { formatCurrency, formatDateString, getSavingsBreakdown, getSavingsContributions, type SavingsBucket } from '../lib/utils';
 import { loadWalletBalances, saveWalletBalance, type BalanceField } from '../lib/walletStore';
-import { Wallet, PiggyBank, Shield, Landmark, Coins, CreditCard, Check, Pencil, X, Banknote, Receipt, ChevronLeft, ChevronRight } from 'lucide-react';
+import {
+  loadCustomSavingsAccounts,
+  createCustomSavingsAccount,
+  updateCustomSavingsAccount,
+  deleteCustomSavingsAccount,
+  uploadCardBackground,
+  type CustomSavingsAccount,
+  type Liquidity,
+} from '../lib/customSavingsStore';
+import { Wallet, PiggyBank, Shield, Landmark, Coins, CreditCard, Check, Pencil, X, Banknote, Receipt, ChevronLeft, ChevronRight, Plus, Trash2, ImagePlus, Loader2 } from 'lucide-react';
 
 interface NetWorthTabProps {
   data: FinancialData;
@@ -190,10 +199,11 @@ interface BalanceCardProps {
   loaded: boolean;
   background?: React.ReactNode;   // low-opacity artwork layer, positioned absolute
   extra?: React.ReactNode;        // extra content under the value (e.g. flags / $ figure)
+  badge?: React.ReactNode;        // small pill beside the title (e.g. liquidity)
   onSaved: (field: BalanceField, value: number) => void;
 }
 
-const BalanceCard: React.FC<BalanceCardProps> = ({ field, title, hint, icon, value, loaded, background, extra, onSaved }) => {
+const BalanceCard: React.FC<BalanceCardProps> = ({ field, title, hint, icon, value, loaded, background, extra, badge, onSaved }) => {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -222,6 +232,7 @@ const BalanceCard: React.FC<BalanceCardProps> = ({ field, title, hint, icon, val
                 {icon}
               </span>
               <p className="text-sm font-medium text-ink">{title}</p>
+              {badge}
             </div>
             <p className="text-xs text-ink-muted leading-relaxed">{hint}</p>
           </div>
@@ -347,7 +358,7 @@ const SavingsDetailModal: React.FC<SavingsDetailModalProps> = ({ bucket, title, 
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-md hover:bg-paper-soft text-ink-muted hover:text-ink transition-colors shrink-0"
+            className="p-2.5 rounded-md hover:bg-paper-soft text-ink-muted hover:text-ink transition-colors shrink-0"
             aria-label="Close"
           >
             <X className="w-4 h-4" />
@@ -392,7 +403,7 @@ const SavingsDetailModal: React.FC<SavingsDetailModalProps> = ({ bucket, title, 
               <button
                 onClick={() => setPage(p => Math.max(0, p - 1))}
                 disabled={safePage <= 0}
-                className="p-1.5 rounded-md border border-rule hover:bg-paper-soft disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                className="p-2.5 rounded-md border border-rule hover:bg-paper-soft disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 aria-label="Previous page"
               >
                 <ChevronLeft className="w-4 h-4 text-ink" />
@@ -401,7 +412,7 @@ const SavingsDetailModal: React.FC<SavingsDetailModalProps> = ({ bucket, title, 
               <button
                 onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))}
                 disabled={safePage >= pageCount - 1}
-                className="p-1.5 rounded-md border border-rule hover:bg-paper-soft disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                className="p-2.5 rounded-md border border-rule hover:bg-paper-soft disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 aria-label="Next page"
               >
                 <ChevronRight className="w-4 h-4 text-ink" />
@@ -415,6 +426,318 @@ const SavingsDetailModal: React.FC<SavingsDetailModalProps> = ({ bucket, title, 
 };
 
 /**
+ * Create / edit / delete a custom savings card. Mirrors SavingsDetailModal's
+ * overlay shell (backdrop click + Escape close) and BalanceCard's save/validate
+ * flow. On save it persists the account first (so a new card always survives),
+ * then optionally uploads a background image — image failure is non-fatal and
+ * shown as a warning, the card is already saved.
+ */
+interface CustomCardModalProps {
+  account: CustomSavingsAccount | null; // null = create
+  onClose: () => void;
+  onCreated: (a: CustomSavingsAccount) => void;
+  onUpdated: (a: CustomSavingsAccount) => void;
+  onDeleted: (id: string) => void;
+}
+
+const CustomCardModal: React.FC<CustomCardModalProps> = ({ account, onClose, onCreated, onUpdated, onDeleted }) => {
+  const isEdit = account !== null;
+  const [name, setName] = useState(account?.name ?? '');
+  const [balance, setBalance] = useState(account ? String(account.balance) : '');
+  const [liquidity, setLiquidity] = useState<Liquidity>(account?.liquidity ?? 'liquid');
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(account?.backgroundUrl ?? null);
+  const [status, setStatus] = useState<'idle' | 'saving' | 'deleting'>('idle');
+  const [error, setError] = useState('');
+  const [warning, setWarning] = useState('');
+  // The row once it exists — the incoming account, or one we just created. Once
+  // set, re-saving updates it (so an image retry never creates a second row).
+  const [persisted, setPersisted] = useState<CustomSavingsAccount | null>(account);
+  // Synchronous in-flight lock. `status` is React state and won't update within
+  // the same tick, so two rapid Enter presses could both pass a status check;
+  // this ref flips synchronously and blocks the second call outright.
+  const savingRef = useRef(false);
+
+  // Close on Escape (disabled mid-write so we don't abandon a save).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && status === 'idle') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose, status]);
+
+  // Local object-URL preview for a newly chosen file; revoked on change/unmount.
+  useEffect(() => {
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] ?? null;
+    setFile(f);
+  };
+
+  const save = async () => {
+    if (savingRef.current) return; // re-entrancy guard: Enter can fire before disabled={busy} applies
+    const amount = parseFloat(balance);
+    if (!name.trim()) { setError('Give the card a name.'); return; }
+    if (!Number.isFinite(amount) || amount < 0) { setError('Enter a valid amount (0 or more).'); return; }
+
+    savingRef.current = true;
+    setStatus('saving'); setError(''); setWarning('');
+
+    // Persist the account row first so the card always survives image trouble.
+    // Update vs create keys off `persisted` (not the original prop) so an image
+    // retry after a successful create never spawns a second row.
+    let saved: CustomSavingsAccount;
+    const firstTime = persisted === null;
+    if (persisted) {
+      const res = await updateCustomSavingsAccount(persisted.id, { name: name.trim(), balance: amount, liquidity });
+      if (!res.ok) { savingRef.current = false; setStatus('idle'); setError(res.error); return; }
+      saved = { ...persisted, name: name.trim(), balance: amount, liquidity };
+    } else {
+      const res = await createCustomSavingsAccount({ name: name.trim(), balance: amount, liquidity });
+      if (!res.ok) { savingRef.current = false; setStatus('idle'); setError(res.error); return; }
+      saved = res.value;
+    }
+    setPersisted(saved);
+
+    // Optional background upload — non-fatal.
+    let imageFailed = false;
+    if (file) {
+      const up = await uploadCardBackground(saved.id, file);
+      if (up.ok) {
+        saved = { ...saved, backgroundPath: up.value.path, backgroundUrl: up.value.url };
+        setPersisted(saved);
+      } else {
+        imageFailed = true;
+        setWarning(`Card saved, but the image didn't upload: ${up.error}`);
+      }
+    }
+
+    // The parent list gets a create only the first time; afterward it's updates.
+    if (firstTime) onCreated(saved); else onUpdated(saved);
+
+    // If the image failed, keep the modal open to show the warning. Clear the
+    // pending file AND reset the preview to the saved image (or none) — leaving
+    // it pointed at the object URL we're about to revoke would render blank.
+    if (imageFailed) {
+      setFile(null);
+      setPreview(saved.backgroundUrl ?? null);
+      savingRef.current = false;
+      setStatus('idle');
+      return;
+    }
+    onClose();
+  };
+
+  const remove = async () => {
+    if (savingRef.current) return;
+    if (!persisted) { onClose(); return; }
+    savingRef.current = true;
+    setStatus('deleting'); setError('');
+    const res = await deleteCustomSavingsAccount(persisted.id, persisted.backgroundPath);
+    if (!res.ok) { savingRef.current = false; setStatus('idle'); setError(res.error); return; }
+    // Drops it from the parent list whether it was pre-existing or just created.
+    onDeleted(persisted.id);
+    onClose();
+  };
+
+  const busy = status !== 'idle';
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-ink/40 backdrop-blur-sm animate-fade-in p-0 sm:p-4"
+      onClick={() => { if (!busy) onClose(); }}
+      role="dialog"
+      aria-modal="true"
+      aria-label={isEdit ? 'Edit savings card' : 'Add savings card'}
+    >
+      <div
+        className="bg-paper w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl border border-rule shadow-paper-lift max-h-[90vh] overflow-y-auto flex flex-col animate-fade-up"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3 p-5 border-b border-rule">
+          <div>
+            <p className="text-xs text-ink-muted mb-0.5">Savings card</p>
+            <h3 className="font-display text-lg text-ink tracking-tight">{isEdit ? 'Edit card' : 'New savings card'}</h3>
+          </div>
+          <button
+            onClick={onClose}
+            disabled={busy}
+            className="p-2.5 rounded-md hover:bg-paper-soft text-ink-muted hover:text-ink transition-colors shrink-0 disabled:opacity-40"
+            aria-label="Close"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {/* Name */}
+          <label className="block">
+            <span className="text-xs font-medium text-ink-soft">Name</span>
+            <input
+              type="text" maxLength={60} value={name} autoFocus
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. House fund"
+              className="mt-1 w-full bg-paper-soft/60 rounded-lg px-3 py-2.5 border border-rule outline-none text-ink text-sm focus:border-ink/30 transition-colors"
+            />
+          </label>
+
+          {/* Balance */}
+          <label className="block">
+            <span className="text-xs font-medium text-ink-soft">Balance</span>
+            <div className="mt-1 flex items-baseline gap-1.5 bg-paper-soft/60 rounded-lg px-3 py-2.5 border border-rule focus-within:border-ink/30 transition-colors">
+              <span className="text-ink-muted font-mono text-lg">₱</span>
+              <input
+                type="number" step="0.01" min="0" value={balance}
+                onChange={(e) => setBalance(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') save(); }}
+                placeholder="0.00"
+                className="flex-1 bg-transparent border-0 outline-none num text-xl text-ink font-semibold placeholder:text-ink-whisper"
+              />
+            </div>
+          </label>
+
+          {/* Liquidity toggle */}
+          <div>
+            <span className="text-xs font-medium text-ink-soft">Liquidity</span>
+            <div className="mt-1 grid grid-cols-2 gap-2">
+              {(['liquid', 'nonliquid'] as const).map((opt) => (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => setLiquidity(opt)}
+                  className={`px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                    liquidity === opt
+                      ? 'bg-ink text-paper border-ink'
+                      : 'bg-paper-soft/60 text-ink-soft border-rule hover:border-ink/30'
+                  }`}
+                >
+                  {opt === 'liquid' ? 'Liquid' : 'Non-liquid'}
+                </button>
+              ))}
+            </div>
+            <p className="text-[11px] text-ink-muted mt-1.5 leading-relaxed">
+              Liquid = you can reach it now. Non-liquid = locked away (like Pag-IBIG MP2).
+            </p>
+          </div>
+
+          {/* Background image */}
+          <div>
+            <span className="text-xs font-medium text-ink-soft">Background image <span className="text-ink-muted font-normal">(optional)</span></span>
+            <label className="mt-1 relative flex items-center gap-3 rounded-lg border border-dashed border-rule px-3 py-3 cursor-pointer hover:border-ink/30 hover:bg-paper-soft/40 transition-colors overflow-hidden">
+              {preview && (
+                <div className="absolute inset-0 bg-cover bg-center opacity-20 pointer-events-none" style={{ backgroundImage: `url(${preview})` }} />
+              )}
+              <span className="relative w-9 h-9 rounded-md bg-paper-soft text-ink-soft flex items-center justify-center shrink-0">
+                <ImagePlus className="w-4 h-4" />
+              </span>
+              <span className="relative text-xs text-ink-soft">
+                {file ? file.name : preview ? 'Change background image' : 'Upload a background image (max 5MB)'}
+              </span>
+              <input type="file" accept="image/*" onChange={onPickFile} className="hidden" />
+            </label>
+          </div>
+
+          {error && <p className="text-xs text-red-500">{error}</p>}
+          {warning && <p className="text-xs text-gold-600 dark:text-gold-400">{warning}</p>}
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-2 p-5 border-t border-rule">
+          <button
+            onClick={save}
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 bg-ink hover:bg-ink-soft text-paper px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-60"
+          >
+            {status === 'saving'
+              ? <Loader2 className="w-4 h-4 animate-spin" />
+              : <Check className="w-4 h-4" />}
+            <span>{isEdit ? 'Save changes' : 'Create card'}</span>
+          </button>
+          {persisted && (
+            <button
+              onClick={remove}
+              disabled={busy}
+              className="inline-flex items-center gap-1.5 text-red-500 hover:text-red-600 border border-rule hover:bg-red-50 dark:hover:bg-red-500/10 px-3 py-2 rounded-lg text-sm transition-colors disabled:opacity-60 ml-auto"
+            >
+              {status === 'deleting'
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : <Trash2 className="w-4 h-4" />}
+              <span>Delete</span>
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Loading skeleton — mirrors the real tab layout (headline, two money cards, the
+ * savings grid) with pulsing placeholders so the page doesn't jump when data
+ * lands. Uses the same paper/rule tokens and rounding as the real surfaces.
+ */
+const Bar: React.FC<{ className?: string }> = ({ className }) => (
+  <div className={`rounded bg-ink/10 dark:bg-paper/10 ${className ?? ''}`} />
+);
+
+const SkeletonSavingsCard: React.FC = () => (
+  <div className="relative bg-paper rounded-xl border border-rule p-5 min-h-[132px]">
+    {/* corner badge, matching the real cards' upper-right image/logo slot */}
+    <div className="absolute top-5 right-5 h-12 w-12 rounded-lg bg-ink/10 dark:bg-paper/10" />
+    <Bar className="h-3 w-24 mb-4" />
+    <Bar className="h-6 w-28 mb-3" />
+    <Bar className="h-2.5 w-20" />
+  </div>
+);
+
+const NetWorthSkeleton: React.FC = () => (
+  <div className="max-w-5xl mx-auto space-y-4 animate-pulse" aria-busy="true" aria-label="Loading net worth">
+    {/* Headline */}
+    <div className="rounded-2xl p-6 sm:p-8 bg-paper border border-rule ring-1 ring-ink/5">
+      <Bar className="h-3 w-28 mb-5" />
+      <Bar className="h-10 w-56 mb-5" />
+      <div className="flex gap-4 mb-6">
+        <Bar className="h-3 w-24" />
+        <Bar className="h-3 w-28" />
+      </div>
+      <div className="pt-5 border-t border-rule">
+        <Bar className="h-2 w-full rounded-full mb-3" />
+        <div className="flex flex-wrap gap-x-5 gap-y-1.5">
+          {Array.from({ length: 4 }).map((_, i) => <Bar key={i} className="h-2.5 w-28" />)}
+        </div>
+      </div>
+    </div>
+    {/* Money cards */}
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {Array.from({ length: 2 }).map((_, i) => (
+        <div key={i} className="bg-paper rounded-xl border border-rule p-5 sm:p-6 min-h-[132px]">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-7 h-7 rounded-md bg-ink/10 dark:bg-paper/10" />
+            <Bar className="h-3.5 w-40" />
+          </div>
+          <Bar className="h-8 w-36 mt-4" />
+        </div>
+      ))}
+    </div>
+    {/* Savings grid */}
+    <div>
+      <div className="flex items-baseline justify-between mb-3">
+        <Bar className="h-3.5 w-16" />
+        <Bar className="h-3 w-24" />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {Array.from({ length: 3 }).map((_, i) => <SkeletonSavingsCard key={i} />)}
+      </div>
+    </div>
+  </div>
+);
+
+/**
  * Net Worth = money on your wallet (cash on hand) + everything you've set aside.
  * The savings buckets (Emergency Fund, General Savings, Pag-IBIG MP2) are kept
  * separate but all count toward the total — so money you saved stops looking
@@ -426,6 +749,11 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
   const [balancesLoaded, setBalancesLoaded] = useState(false);
   // Which savings bucket's detail modal is open (null = none).
   const [openBucket, setOpenBucket] = useState<{ bucket: SavingsBucket; title: string } | null>(null);
+  // User-created custom savings cards (own table, count toward net worth).
+  const [customAccounts, setCustomAccounts] = useState<CustomSavingsAccount[]>([]);
+  const [customLoaded, setCustomLoaded] = useState(false);
+  // Create/edit modal: { account } where account=null means "create new".
+  const [customEditor, setCustomEditor] = useState<{ account: CustomSavingsAccount | null } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -434,15 +762,39 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
       if (res.ok) { setWallet(res.balances.wallet); setDebit(res.balances.debit); }
       setBalancesLoaded(true);
     });
+    loadCustomSavingsAccounts().then((res) => {
+      if (cancelled) return;
+      if (res.ok) setCustomAccounts(res.value);
+      setCustomLoaded(true);
+    });
     return () => { cancelled = true; };
   }, []);
+
+  // The whole tab depends on both the wallet balances and the custom accounts;
+  // show the skeleton until both first-loads have settled.
+  const loading = !balancesLoaded || !customLoaded;
 
   const savings = useMemo(
     () => getSavingsBreakdown(data.incomeHistory, data.expenses),
     [data.incomeHistory, data.expenses],
   );
 
-  const netWorth = wallet + debit + savings.total;
+  // Custom accounts are savings too — each carries its own liquidity flag.
+  const customTotal = customAccounts.reduce((s, a) => s + a.balance, 0);
+  const customNonLiquid = customAccounts
+    .filter(a => a.liquidity === 'nonliquid')
+    .reduce((s, a) => s + a.balance, 0);
+  // The savings figure shown/summed across the tab includes custom accounts.
+  const savingsTotal = savings.total + customTotal;
+
+  const netWorth = wallet + debit + savingsTotal;
+
+  // Liquid = money reachable now (wallet, debit, EF, General, Other, liquid customs).
+  // Non-liquid = money locked away (Pag-IBIG MP2 + any non-liquid custom accounts).
+  const nonLiquid = savings.pagibigMP2 + customNonLiquid;
+  const liquid = netWorth - nonLiquid;
+  const liquidPct = netWorth > 0 ? Math.round((liquid / netWorth) * 100) : 0;
+  const nonLiquidPct = netWorth > 0 ? 100 - liquidPct : 0;
 
   // Persist callback shared by both balance cards.
   const handleBalanceSaved = (field: BalanceField, value: number) => {
@@ -450,16 +802,37 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
     else setDebit(value);
   };
 
+  // Optimistic refresh after a custom-card mutation — no re-fetch needed.
+  const handleCustomCreated = (account: CustomSavingsAccount) =>
+    setCustomAccounts(prev => [...prev, account]);
+  const handleCustomUpdated = (account: CustomSavingsAccount) =>
+    setCustomAccounts(prev => prev.map(a => (a.id === account.id ? account : a)));
+  const handleCustomDeleted = (id: string) =>
+    setCustomAccounts(prev => prev.filter(a => a.id !== id));
+
   // Savings buckets — separate, but each contributes to total_savings.
   // `bucket` maps the card to getSavingsContributions()'s bucket key.
   const buckets = [
-    { key: 'ef', bucket: 'emergencyFund' as SavingsBucket, label: 'Emergency Fund', value: savings.emergencyFund, icon: <Shield className="w-4 h-4" />, tone: 'jade' as const },
-    { key: 'gs', bucket: 'generalSavings' as SavingsBucket, label: 'General Savings', value: savings.generalSavings, icon: <PiggyBank className="w-4 h-4" />, tone: 'jade' as const },
-    { key: 'mp2', bucket: 'pagibigMP2' as SavingsBucket, label: 'Pag-IBIG MP2', value: savings.pagibigMP2, icon: <Landmark className="w-4 h-4" />, tone: 'gold' as const },
+    { key: 'ef', bucket: 'emergencyFund' as SavingsBucket, label: 'Emergency Fund', value: savings.emergencyFund, icon: <Shield className="w-4 h-4" />, tone: 'jade' as const, liquidity: 'liquid' as const },
+    { key: 'gs', bucket: 'generalSavings' as SavingsBucket, label: 'General Savings', value: savings.generalSavings, icon: <PiggyBank className="w-4 h-4" />, tone: 'jade' as const, liquidity: 'liquid' as const },
+    { key: 'mp2', bucket: 'pagibigMP2' as SavingsBucket, label: 'Pag-IBIG MP2', value: savings.pagibigMP2, icon: <Landmark className="w-4 h-4" />, tone: 'gold' as const, liquidity: 'nonliquid' as const },
     ...(savings.other > 0
-      ? [{ key: 'other', bucket: 'other' as SavingsBucket, label: 'Other Savings', value: savings.other, icon: <Coins className="w-4 h-4" />, tone: 'neutral' as const }]
+      ? [{ key: 'other', bucket: 'other' as SavingsBucket, label: 'Other Savings', value: savings.other, icon: <Coins className="w-4 h-4" />, tone: 'neutral' as const, liquidity: 'liquid' as const }]
       : []),
   ];
+
+  // Small pill shown next to a bucket label indicating whether the money is
+  // reachable now (EF, General Savings, Other) or locked away (Pag-IBIG MP2).
+  const LiquidityBadge: React.FC<{ liquidity: 'liquid' | 'nonliquid' }> = ({ liquidity }) =>
+    liquidity === 'liquid' ? (
+      <span className="text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-jade-50 text-jade-600 dark:bg-jade-900/50 dark:text-jade-400">
+        Liquid
+      </span>
+    ) : (
+      <span className="text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-paper-soft text-ink-soft dark:bg-ink/40 dark:text-ink-muted">
+        Non-liquid
+      </span>
+    );
 
   const openDetail = (bucket: SavingsBucket, title: string) => setOpenBucket({ bucket, title });
 
@@ -482,25 +855,67 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
     ...(savings.other > 0
       ? [{ key: 'other', label: 'Other Savings', value: savings.other,        color: '#6b7280' }]
       : []),
+    // User-created cards, each its own composition segment.
+    ...customAccounts.map(a => ({ key: `custom-${a.id}`, label: a.name, value: a.balance, color: '#64748b' })),
   ].filter(seg => seg.value > 0);
+
+  // Shared hover/focus styling for every clickable savings card (buckets + customs).
+  const cardBase = 'cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:shadow-paper-lift hover:border-ink/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/20';
+
+  if (loading) return <NetWorthSkeleton />;
 
   return (
     <div className="max-w-5xl mx-auto space-y-4">
-      {/* Headline: Net Worth */}
-      <div className="relative bg-ink text-paper rounded-xl p-6 sm:p-8 overflow-hidden">
-        <div className="flex items-center justify-between mb-5">
-          <p className="text-xs uppercase tracking-wider text-paper/55">Your net worth</p>
-          <span className="inline-flex items-center gap-1.5 text-paper/55 text-xs font-mono">
+      {/* Headline: Net Worth — stylish monochrome gradient that inverts by theme.
+          Light: soft silver (white→light-grey) with ink text.
+          Dark:  deep black (black→charcoal) with white text.
+          The composition bar below keeps each savings type's brand color. */}
+      <div
+        className="nw-card relative rounded-2xl p-6 sm:p-8 overflow-hidden ring-1 transition-colors
+                   text-ink ring-ink/10 shadow-[0_10px_40px_-16px_rgba(0,0,0,0.28)]
+                   bg-gradient-to-br from-white via-neutral-200 to-neutral-400
+                   dark:text-white dark:ring-white/10 dark:shadow-[0_10px_40px_-12px_rgba(0,0,0,0.6)]
+                   dark:bg-gradient-to-br dark:from-neutral-950 dark:via-neutral-800 dark:to-neutral-600"
+      >
+        {/* Sheen: a soft diagonal highlight. Keeps the gradient readable — a
+            light top-left glint in both themes, not a full wash that flattens it. */}
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-tr from-transparent via-white/10 to-white/30 dark:via-white/[0.06] dark:to-white/[0.14]" />
+        {/* Two faint radial glows give the surface depth in both themes. */}
+        <div className="pointer-events-none absolute -top-16 -right-10 w-64 h-64 rounded-full bg-white/40 blur-3xl dark:bg-white/10" />
+        <div className="pointer-events-none absolute -bottom-24 -left-10 w-72 h-72 rounded-full bg-ink/[0.06] blur-3xl dark:bg-white/[0.05]" />
+
+        <div className="relative flex items-center justify-between mb-5">
+          <p className="text-xs uppercase tracking-[0.2em] text-ink-soft/70 dark:text-white/50">Your net worth</p>
+          <span className="inline-flex items-center gap-1.5 text-ink-soft/70 dark:text-white/50 text-xs font-mono">
             <Wallet className="w-3.5 h-3.5" /> wallet + savings
           </span>
         </div>
-        <p className="num font-semibold text-4xl sm:text-5xl tracking-tight text-paper animate-count-pop">
+        <p className="relative num font-semibold text-4xl sm:text-5xl tracking-tight bg-clip-text text-transparent animate-count-pop
+                      bg-gradient-to-b from-ink to-ink/70 dark:from-white dark:to-white/70">
           {balancesLoaded ? formatCurrency(netWorth) : '—'}
         </p>
 
-        {/* Composition bar — wallet + debit + each savings bucket, all separated */}
-        <div className="mt-6 pt-5 border-t border-paper/10">
-          <div className="flex h-2 rounded-full overflow-hidden bg-paper/10">
+        {/* Liquid vs non-liquid split — how much you can reach now vs locked away */}
+        {balancesLoaded && netWorth > 0 && (
+          <div className="relative mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px]">
+            <span className="inline-flex items-center gap-1.5 text-ink-soft dark:text-white/70">
+              <span className="w-2 h-2 rounded-full bg-ink dark:bg-white" />
+              <span className="font-semibold text-ink dark:text-white/90">{liquidPct}% liquid</span>
+              <span className="text-ink-muted dark:text-white/45">{formatCurrency(liquid)}</span>
+            </span>
+            <span className="inline-flex items-center gap-1.5 text-ink-soft dark:text-white/70">
+              <span className="w-2 h-2 rounded-full bg-ink/35 dark:bg-white/35" />
+              <span className="font-semibold text-ink dark:text-white/90">{nonLiquidPct}% non-liquid</span>
+              <span className="text-ink-muted dark:text-white/45">{formatCurrency(nonLiquid)}</span>
+            </span>
+          </div>
+        )}
+
+        {/* Composition bar — wallet + debit + each savings bucket. The card
+            itself is monochrome, but the bar keeps each savings type's own
+            brand color so segments stay identifiable in both themes. */}
+        <div className="relative mt-6 pt-5 border-t border-ink/10 dark:border-white/10">
+          <div className="flex h-2 rounded-full overflow-hidden bg-ink/10 dark:bg-white/10">
             {composition.map(seg => (
               <div
                 key={seg.key}
@@ -512,7 +927,7 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
           </div>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 mt-3">
             {composition.map(seg => (
-              <span key={seg.key} className="inline-flex items-center gap-1.5 text-[11px] text-paper/70">
+              <span key={seg.key} className="inline-flex items-center gap-1.5 text-[11px] text-ink-soft dark:text-white/70">
                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: seg.color }} /> {seg.label} {formatCurrency(seg.value)}
               </span>
             ))}
@@ -530,6 +945,7 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
           value={wallet}
           loaded={balancesLoaded}
           onSaved={handleBalanceSaved}
+          badge={<LiquidityBadge liquidity="liquid" />}
           extra={
             <div className="mt-3 flex items-center gap-4">
               <span className="num text-sm font-medium text-ink-soft">
@@ -550,6 +966,7 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
           value={debit}
           loaded={balancesLoaded}
           onSaved={handleBalanceSaved}
+          badge={<LiquidityBadge liquidity="liquid" />}
           background={<MariBankCard className="absolute inset-0 w-full h-full opacity-[0.14] dark:opacity-20 pointer-events-none" />}
         />
       </div>
@@ -558,11 +975,11 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
       <div>
         <div className="flex items-baseline justify-between mb-3">
           <h2 className="text-sm font-medium text-ink">Savings</h2>
-          <span className="text-xs text-ink-muted font-mono">{formatCurrency(savings.total)} total</span>
+          <span className="text-xs text-ink-muted font-mono">{formatCurrency(savingsTotal)} total</span>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {buckets.map((b) => {
-            const pct = savings.total > 0 ? `${Math.round((b.value / savings.total) * 100)}% of savings` : 'Counted as savings';
+            const pct = savingsTotal > 0 ? `${Math.round((b.value / savingsTotal) * 100)}% of savings` : 'Counted as savings';
 
             // Shared click behavior — every savings card opens its detail modal.
             const clickProps = {
@@ -574,18 +991,28 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
               },
               'aria-label': `${b.label}: ${formatCurrency(b.value)}. View contribution dates.`,
             };
-            const cardBase = 'cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:shadow-paper-lift hover:border-ink/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/20';
 
             // EF & GS — the full GoTyme VISA card artwork as a low-opacity background.
             // `meet` fits the whole card design inside (nothing cropped); a faint
             // cyan wash fills the letterbox so the card reads as one surface.
+            // EF & GS — the GoTyme card artwork as a SOLID upper-right badge,
+            // same slot/size/rounding as the MP2 logo (not a faded background).
             if (b.key === 'ef' || b.key === 'gs') {
               return (
-                <div key={b.key} {...clickProps} className={`relative bg-paper rounded-xl border border-rule p-5 overflow-hidden min-h-[132px] ${cardBase}`}>
-                  <div className="absolute inset-0 bg-[#2ec4c9]/[0.06] pointer-events-none" />
-                  <GoTymeCard className="absolute inset-0 w-full h-full opacity-[0.16] dark:opacity-25 pointer-events-none" />
+                <div key={b.key} {...clickProps} className={`relative overflow-hidden bg-paper rounded-xl border border-rule p-5 ${cardBase}`}>
+                  {/* Mobile: brand art fills the card as a low-opacity background
+                      (no cramped corner badge). Hidden from sm up, where it
+                      returns to the upper-right badge slot. */}
+                  <GoTymeCard className="sm:hidden absolute inset-0 w-full h-full object-cover opacity-[0.12] dark:opacity-20 pointer-events-none" />
                   <div className="relative">
-                    <p className="text-xs font-medium text-ink-muted leading-tight mb-3">{b.label}</p>
+                    <div className="flex items-start justify-between gap-2 mb-3">
+                      <div className="flex items-center gap-1.5 pt-0.5 min-w-0">
+                        <p className="text-xs font-medium text-ink-muted leading-tight truncate">{b.label}</p>
+                        <LiquidityBadge liquidity={b.liquidity} />
+                      </div>
+                      {/* Corner badge — sm and up only (mobile uses the full-bleed bg). */}
+                      <GoTymeCard className="hidden sm:block w-24 h-auto shrink-0 rounded-lg" />
+                    </div>
                     <p className="num text-2xl font-semibold tracking-tight text-ink">{formatCurrency(b.value)}</p>
                     <p className="text-[11px] text-ink-muted mt-1.5 flex items-center justify-between">
                       <span>{pct}</span>
@@ -599,16 +1026,24 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
             // MP2 — the full Pag-IBIG MP2 logo replaces the corner icon, at full size.
             if (b.key === 'mp2') {
               return (
-                <div key={b.key} {...clickProps} className={`bg-paper rounded-xl border border-rule p-5 ${cardBase}`}>
-                  <div className="flex items-start justify-between gap-3 mb-3">
-                    <p className="text-xs font-medium text-ink-muted leading-tight pt-0.5">{b.label}</p>
-                    <Mp2Logo className="h-12 w-auto shrink-0 rounded-lg" />
+                <div key={b.key} {...clickProps} className={`relative overflow-hidden bg-paper rounded-xl border border-rule p-5 ${cardBase}`}>
+                  {/* Mobile: MP2 logo fills the card as a low-opacity background. */}
+                  <Mp2Logo className="sm:hidden absolute inset-0 w-full h-full object-cover opacity-[0.12] dark:opacity-20 pointer-events-none" />
+                  <div className="relative">
+                    <div className="flex items-start justify-between gap-2 mb-3">
+                      <div className="flex items-center gap-1.5 pt-0.5 min-w-0">
+                        <p className="text-xs font-medium text-ink-muted leading-tight">{b.label}</p>
+                        <LiquidityBadge liquidity={b.liquidity} />
+                      </div>
+                      {/* Corner badge — sm and up only. */}
+                      <Mp2Logo className="hidden sm:block h-12 w-auto shrink-0 rounded-lg" />
+                    </div>
+                    <p className="num text-2xl font-semibold tracking-tight text-ink">{formatCurrency(b.value)}</p>
+                    <p className="text-[11px] text-ink-muted mt-1.5 flex items-center justify-between">
+                      <span>{pct}</span>
+                      <span className="text-ink-soft/70 font-medium">View dates →</span>
+                    </p>
                   </div>
-                  <p className="num text-2xl font-semibold tracking-tight text-ink">{formatCurrency(b.value)}</p>
-                  <p className="text-[11px] text-ink-muted mt-1.5 flex items-center justify-between">
-                    <span>{pct}</span>
-                    <span className="text-ink-soft/70 font-medium">View dates →</span>
-                  </p>
                 </div>
               );
             }
@@ -616,7 +1051,10 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
             return (
               <div key={b.key} {...clickProps} className={`bg-paper rounded-xl border border-rule p-5 ${cardBase}`}>
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs font-medium text-ink-muted leading-tight">{b.label}</p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-xs font-medium text-ink-muted leading-tight">{b.label}</p>
+                    <LiquidityBadge liquidity={b.liquidity} />
+                  </div>
                   <span className={`${toneClasses[b.tone]} w-7 h-7 rounded-md flex items-center justify-center shrink-0`}>
                     {b.icon}
                   </span>
@@ -629,11 +1067,73 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
               </div>
             );
           })}
+
+          {/* User-created cards. With an uploaded image it renders full-bleed as a
+              low-opacity background (like the GoTyme cards); with no image it uses
+              the same corner-mark placeholder treatment as the Pag-IBIG MP2 card. */}
+          {customAccounts.map((a) => {
+            const pct = savingsTotal > 0 ? `${Math.round((a.balance / savingsTotal) * 100)}% of savings` : 'Counted as savings';
+            const open = () => setCustomEditor({ account: a });
+            return (
+              <div
+                key={a.id}
+                role="button"
+                tabIndex={0}
+                onClick={open}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } }}
+                aria-label={`${a.name}: ${formatCurrency(a.balance)}. Edit card.`}
+                className={`relative overflow-hidden bg-paper rounded-xl border border-rule p-5 min-h-[132px] ${cardBase}`}
+              >
+                {/* On mobile an uploaded image fills the card as a low-opacity
+                    background; from sm up it returns to a solid upper-right badge
+                    (same slot as the MP2 logo). No image → PiggyBank placeholder
+                    badge in that slot at all sizes. */}
+                {a.backgroundUrl && (
+                  <img
+                    src={a.backgroundUrl}
+                    alt=""
+                    className="sm:hidden absolute inset-0 w-full h-full object-cover opacity-20 dark:opacity-25 pointer-events-none"
+                  />
+                )}
+                {a.backgroundUrl ? (
+                  <img
+                    src={a.backgroundUrl}
+                    alt=""
+                    className="hidden sm:block absolute top-5 right-5 h-12 w-12 shrink-0 rounded-lg object-cover"
+                  />
+                ) : (
+                  <span className="absolute top-5 right-5 h-12 w-12 shrink-0 rounded-lg bg-paper-soft text-ink-soft flex items-center justify-center">
+                    <PiggyBank className="w-6 h-6" />
+                  </span>
+                )}
+                <div className="relative">
+                  <div className="flex items-center gap-1.5 mb-3 pr-14 sm:pr-[72px]">
+                    <p className="text-xs font-medium text-ink-muted leading-tight min-w-0 truncate">{a.name}</p>
+                    <LiquidityBadge liquidity={a.liquidity} />
+                  </div>
+                  <p className="num text-2xl font-semibold tracking-tight text-ink">{formatCurrency(a.balance)}</p>
+                  <p className="text-[11px] text-ink-muted mt-1.5 flex items-center justify-between">
+                    <span>{pct}</span>
+                    <span className="text-ink-soft/70 font-medium">Edit →</span>
+                  </p>
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Add a new custom savings card */}
+          <button
+            onClick={() => setCustomEditor({ account: null })}
+            className="rounded-xl border border-dashed border-rule p-5 min-h-[132px] flex flex-col items-center justify-center gap-2 text-ink-muted hover:border-ink/30 hover:text-ink hover:bg-paper-soft/40 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/20"
+          >
+            <Plus className="w-5 h-5" />
+            <span className="text-xs font-medium">Add savings card</span>
+          </button>
         </div>
         <p className="text-xs text-ink-muted mt-3 leading-relaxed">
           Emergency Fund and General Savings include both what you set aside from paychecks and any you logged as expenses.
           Pag-IBIG MP2 counts the contributions you tagged as MP2. All three are savings — money you own, not money spent.
-          Tap any card to see how much and when you set it aside.
+          Tap any card to see how much and when you set it aside — or add your own savings card with the tile above.
         </p>
       </div>
 
@@ -643,6 +1143,16 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
           title={openBucket.title}
           data={data}
           onClose={() => setOpenBucket(null)}
+        />
+      )}
+
+      {customEditor && (
+        <CustomCardModal
+          account={customEditor.account}
+          onClose={() => setCustomEditor(null)}
+          onCreated={handleCustomCreated}
+          onUpdated={handleCustomUpdated}
+          onDeleted={handleCustomDeleted}
         />
       )}
     </div>

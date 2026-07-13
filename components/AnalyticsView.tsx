@@ -6,7 +6,10 @@ import { CategoryPieChart } from './Charts/CategoryPieChart';
 import { IncomeVsExpenseChart } from './Charts/IncomeVsExpenseChart';
 import { NetIncomeTrendChart } from './Charts/NetIncomeTrendChart';
 import { Download, FileText, Calendar, ChevronDown, Check } from 'lucide-react';
-import { generateFinancialReportPDF } from '../lib/pdfExport';
+import { generateFinancialReportPDF, type NetWorthSnapshot } from '../lib/pdfExport';
+import { withBillExpenses } from '../lib/utils';
+import { loadWalletBalances } from '../lib/walletStore';
+import { loadCustomSavingsAccounts } from '../lib/customSavingsStore';
 import { supabase } from '../lib/supabase';
 
 interface AnalyticsViewProps {
@@ -69,7 +72,14 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ data }) => {
     return Array.from(groups.entries()); // [[year, months[]]]
   }, [data]);
 
-  const filteredData = useMemo(() => filterDataForPeriod(data, period), [data, period]);
+  // Bills-as-expenses: fold settled bill payments into `expenses` so the summary,
+  // charts, and exported report all count them. Augment AFTER period filtering so
+  // the synthetic rows aren't double-counted alongside the raw billPayments.
+  const augmentedData = useMemo(() => withBillExpenses(data), [data]);
+  const filteredData = useMemo(
+    () => withBillExpenses(filterDataForPeriod(data, period)),
+    [data, period],
+  );
   const isPeriodEmpty =
     filteredData.incomeHistory.length === 0 && filteredData.expenses.length === 0;
 
@@ -78,7 +88,30 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ data }) => {
     try {
       const { data: authData } = await supabase.auth.getUser();
       const userName = authData.user?.user_metadata?.full_name || authData.user?.email || 'User';
-      await generateFinancialReportPDF(filteredData, userName);
+
+      // Net-worth balances are point-in-time (not period-scoped). Fetch them for
+      // the report; degrade gracefully to a report without the section if either
+      // load fails (e.g. table/bucket not migrated yet).
+      let netWorth: NetWorthSnapshot | undefined;
+      try {
+        const [balances, accounts] = await Promise.all([
+          loadWalletBalances(),
+          loadCustomSavingsAccounts(),
+        ]);
+        if (balances.ok) {
+          netWorth = {
+            wallet: balances.balances.wallet,
+            debit: balances.balances.debit,
+            custom: accounts.ok
+              ? accounts.value.map((a) => ({ name: a.name, balance: a.balance, liquidity: a.liquidity }))
+              : [],
+          };
+        }
+      } catch (nwErr) {
+        console.warn('Could not load net-worth data for PDF:', nwErr);
+      }
+
+      await generateFinancialReportPDF(filteredData, userName, netWorth);
     } catch (error) {
       console.error('Error exporting PDF:', error);
       alert('Failed to export PDF. Please try again.');
@@ -198,19 +231,19 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ data }) => {
         </div>
       </div>
 
-      <AnalyticsSummary data={data} />
+      <AnalyticsSummary data={augmentedData} />
 
       <div>
         <h2 className="text-sm font-medium text-ink mb-3">Trends</h2>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <NetIncomeTrendChart data={data} />
-          <SpendingTrendChart expenses={data.expenses} />
+          <NetIncomeTrendChart data={augmentedData} />
+          <SpendingTrendChart expenses={augmentedData.expenses} />
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <CategoryPieChart expenses={data.expenses} />
-        <IncomeVsExpenseChart data={data} />
+        <CategoryPieChart expenses={augmentedData.expenses} />
+        <IncomeVsExpenseChart data={augmentedData} />
       </div>
     </div>
   );

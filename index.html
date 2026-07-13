@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0a0a0b" media="(prefers-color-scheme: dark)">
-    <title>KTR — Financial Tracker</title>
+    <title>Fintech</title>
     <link rel="icon" type="image/png" href="/logo.png">
     <script src="https://cdn.tailwindcss.com"></script>
 
@@ -164,7 +164,35 @@
         text-rendering: optimizeLegibility;
         font-family: 'Geist', ui-sans-serif, system-ui, sans-serif;
         font-feature-settings: 'ss01' on, 'cv11' on;
-        transition: background-color 200ms ease, color 200ms ease;
+      }
+
+      /* ----------------------------------------------------------------------
+         Smooth dark/light theme transition.
+         The toggle just swaps the `.dark` class, which flips the CSS-var
+         tokens instantly. Without this, every surface (cards, borders, text,
+         SVG artwork, shadows) snaps hard. We ease ONLY color-family properties
+         — never `all`, so layout, transforms and the app's hover/`animate-*`
+         motion are untouched — matching the previous 200ms body timing.
+         `will-change: auto` keeps this from forcing layers on every node.
+      ---------------------------------------------------------------------- */
+      *,
+      *::before,
+      *::after {
+        transition-property: background-color, border-color, color, fill, stroke, box-shadow, outline-color, text-decoration-color;
+        transition-duration: 220ms;
+        transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      /* Don't let the theme easing slow down deliberately-fast interactions
+         (button/link hovers define their own shorter color transitions). Those
+         still win via their own `transition` shorthand; this is just a safety
+         net for elements whose only transition is the theme fade. */
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          transition-duration: 0.01ms !important;
+        }
       }
 
       .font-display {

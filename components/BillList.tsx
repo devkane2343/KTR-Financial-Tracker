@@ -176,7 +176,7 @@ export const BillList: React.FC<BillListProps> = ({ bills, payments, onDelete, o
             ) : (
               <button
                 onClick={() => startPaying(bill.id)}
-                className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+                className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-2.5 sm:py-1.5 rounded-lg transition-colors ${
                   status === 'overdue'
                     ? 'bg-coral-500 text-paper hover:bg-coral-600'
                     : 'bg-ink text-paper hover:bg-ink-soft'
@@ -188,21 +188,21 @@ export const BillList: React.FC<BillListProps> = ({ bills, payments, onDelete, o
             )}
             <button
               onClick={() => setHistoryBillId(showHistory ? null : bill.id)}
-              className="p-1.5 text-ink-muted hover:text-ink hover:bg-paper-soft rounded-md transition-colors"
+              className="p-2.5 sm:p-1.5 text-ink-muted hover:text-ink hover:bg-paper-soft rounded-md transition-colors"
               title="Payment history"
             >
               <History className="w-4 h-4" />
             </button>
             <button
               onClick={() => onEdit(bill)}
-              className="p-1.5 text-ink-muted hover:text-ink hover:bg-paper-soft rounded-md transition-colors"
+              className="p-2.5 sm:p-1.5 text-ink-muted hover:text-ink hover:bg-paper-soft rounded-md transition-colors"
               title="Edit bill"
             >
               <Edit2 className="w-4 h-4" />
             </button>
             <button
               onClick={() => onDelete(bill.id)}
-              className="p-1.5 text-ink-muted hover:text-coral-600 hover:bg-coral-50 rounded-md transition-colors"
+              className="p-2.5 sm:p-1.5 text-ink-muted hover:text-coral-600 hover:bg-coral-50 rounded-md transition-colors"
               title="Delete bill"
             >
               <Trash2 className="w-4 h-4" />
@@ -211,13 +211,13 @@ export const BillList: React.FC<BillListProps> = ({ bills, payments, onDelete, o
         </div>
 
         {isPaying && (
-          <div className="mt-3 flex items-center gap-2 p-2.5 bg-paper-soft rounded-lg border border-rule animate-fade-up">
+          <div className="mt-3 flex flex-wrap items-center gap-2 p-2.5 bg-paper-soft rounded-lg border border-rule animate-fade-up">
             <label className="text-xs text-ink-muted whitespace-nowrap">Date paid</label>
             <input
               type="date"
               value={payDate}
               onChange={(e) => setPayDate(e.target.value)}
-              className="flex-1 px-2.5 py-1.5 bg-paper border border-rule rounded-md text-sm focus:border-ink/30 focus:ring-2 focus:ring-ink/5 outline-none num"
+              className="w-full sm:flex-1 sm:w-auto px-2.5 py-1.5 bg-paper border border-rule rounded-md text-sm focus:border-ink/30 focus:ring-2 focus:ring-ink/5 outline-none num"
             />
             <button
               onClick={() => handleConfirmPay(bill)}

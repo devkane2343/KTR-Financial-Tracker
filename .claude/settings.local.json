@@ -16,7 +16,24 @@
       "Bash(echo \"---EXIT:$?---\")",
       "Bash(curl -s -o /dev/null -w \"port 5199: HTTP %{http_code}\\\\n\" --max-time 2 http://localhost:5199/)",
       "PowerShell($conn = Get-NetTCPConnection -LocalPort 5199 -State Listen -ErrorAction SilentlyContinue; if \\($conn\\) { $conn | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue; \"Stopped PID $_\" } } else { \"No listener on 5199\" })",
-      "Bash(timeout 120 npx vite build)"
+      "Bash(timeout 120 npx vite build)",
+      "PowerShell(npx tsc --noEmit)",
+      "PowerShell(npm run build 2>&1)",
+      "Bash(git stash *)",
+      "Bash(git checkout *)",
+      "PowerShell(npm run build)",
+      "PowerShell($out = \"C:\\\\Users\\\\Itachi\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Itachi-Desktop-KTR-Financial-Tracker\\\\bfd0e14b-bb02-4271-82ac-a544563b783a\\\\scratchpad\\\\feature-diff.txt\"; git --no-pager diff -- components/NetWorthTab.tsx > $out; \"===== NEW FILE: lib/customSavingsStore.ts =====\" | Out-File -Append -Encoding utf8 $out; Get-Content lib/customSavingsStore.ts | Out-File -Append -Encoding utf8 $out; \\(Get-Item $out\\).Length)",
+      "Bash(npm run *)",
+      "Bash(node --input-type=module -e ' *)",
+      "Bash(cat \"C:/Users/Itachi/.claude/projects/c--Users-Itachi-Desktop-KTR-Financial-Tracker/12f3ffad-7198-4372-a2de-ae2992bf403e/subagents/workflows/wf_f7cacfde-51e/journal.jsonl\" 2>/dev/null | grep -c '\"type\":\"completed\"' && echo \"--- last lines ---\" && tail -3 \"C:/Users/Itachi/.claude/projects/c--Users-Itachi-Desktop-KTR-Financial-Tracker/12f3ffad-7198-4372-a2de-ae2992bf403e/subagents/workflows/wf_f7cacfde-51e/journal.jsonl\")",
+      "Read(//c/Users/Itachi/.claude/projects/c--Users-Itachi-Desktop-KTR-Financial-Tracker/12f3ffad-7198-4372-a2de-ae2992bf403e/subagents/workflows/wf_f7cacfde-51e/**)",
+      "Bash(python -c 'import sys,json *)",
+      "Bash(python -c ' *)",
+      "Read(//tmp/**)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('has verify/run skill config' if d else 'no'\\)\")",
+      "Bash(python -c \"import PIL; print\\('PIL', PIL.__version__\\)\")",
+      "Read(//c/Users/Itachi/AppData/Local/Temp/claude/**)",
+      "Bash(python3)"
     ]
   }
 }

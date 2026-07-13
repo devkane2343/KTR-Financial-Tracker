@@ -156,7 +156,7 @@ export const AnalyticsSummary: React.FC<AnalyticsSummaryProps> = ({ data }) => {
               <button
                 onClick={() => setSelectedMonthIndex(prev => Math.min(prev + 1, sortedMonths.length - 1))}
                 disabled={selectedMonthIndex >= sortedMonths.length - 1}
-                className="p-1.5 rounded-md hover:bg-paper-soft disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
+                className="p-2.5 sm:p-1.5 rounded-md hover:bg-paper-soft disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
                 title="Earlier month"
               >
                 <ChevronLeft className="w-4 h-4 text-ink" />
@@ -167,7 +167,7 @@ export const AnalyticsSummary: React.FC<AnalyticsSummaryProps> = ({ data }) => {
               <button
                 onClick={() => setSelectedMonthIndex(prev => Math.max(prev - 1, 0))}
                 disabled={selectedMonthIndex <= 0}
-                className="p-1.5 rounded-md hover:bg-paper-soft disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
+                className="p-2.5 sm:p-1.5 rounded-md hover:bg-paper-soft disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
                 title="Later month"
               >
                 <ChevronRight className="w-4 h-4 text-ink" />
@@ -187,10 +187,10 @@ export const AnalyticsSummary: React.FC<AnalyticsSummaryProps> = ({ data }) => {
               <span>{incomeCountForMonth} {incomeCountForMonth === 1 ? 'paycheck' : 'paychecks'}</span>
             </div>
           </div>
-          <p className="num font-semibold text-4xl sm:text-5xl tracking-tight text-paper animate-count-pop">
+          <p className="num font-semibold text-3xl sm:text-4xl lg:text-5xl tracking-tight text-paper animate-count-pop break-words">
             {formatCurrency(monthlyGrossIncome)}
           </p>
-          <div className="flex items-baseline gap-6 mt-5 pt-4 border-t border-paper/10">
+          <div className="flex flex-wrap items-baseline gap-x-6 gap-y-3 mt-5 pt-4 border-t border-paper/10">
             <div>
               <p className="text-[10px] uppercase tracking-wider text-paper/45 mb-0.5">Net after deductions</p>
               <p className="num text-base text-paper">{formatCurrency(monthlyNetIncome)}</p>

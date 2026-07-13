@@ -572,8 +572,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onPortfolioSaved
         <h3 className="text-xs font-medium text-ink-soft mb-2">Account info</h3>
         <div className="space-y-1.5 text-sm">
           <div className="flex justify-between gap-3">
-            <span className="text-ink-muted">User ID</span>
-            <span className="text-ink-soft font-mono text-xs truncate">{user.id}</span>
+            <span className="text-ink-muted shrink-0">User ID</span>
+            <span className="text-ink-soft font-mono text-xs truncate min-w-0">{user.id}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-ink-muted">Created</span>

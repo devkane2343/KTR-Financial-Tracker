@@ -101,7 +101,7 @@ export const DashboardCharts: React.FC<DashboardChartsProps> = ({ data, onGoToBi
             <div className="px-5 py-3 border-t border-rule">
               <button
                 onClick={onGoToBills}
-                className="w-full flex items-center justify-center gap-1.5 text-xs font-medium text-ink-muted hover:text-ink transition-colors py-1"
+                className="w-full flex items-center justify-center gap-1.5 text-xs font-medium text-ink-muted hover:text-ink transition-colors py-2.5"
               >
                 <CreditCard className="w-3.5 h-3.5" />
                 Manage all bills

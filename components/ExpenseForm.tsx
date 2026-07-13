@@ -61,7 +61,7 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ onAdd, onUpdate, editi
           </h2>
         </div>
         {editingExpense && onCancelEdit && (
-          <button onClick={onCancelEdit} className="p-1.5 hover:bg-paper-soft rounded-md text-ink-muted hover:text-ink transition-colors">
+          <button onClick={onCancelEdit} className="p-2.5 -m-1 hover:bg-paper-soft rounded-md text-ink-muted hover:text-ink transition-colors">
             <X className="w-4 h-4" />
           </button>
         )}

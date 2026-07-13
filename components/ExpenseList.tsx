@@ -4,7 +4,7 @@ import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
 import { Expense } from '../types';
 import { CATEGORIES } from '../constants';
 import { formatCurrency, formatDateString, isSavingsCategory } from '../lib/utils';
-import { Trash2, Search, ChevronLeft, ChevronRight, Pencil, CalendarDays, PieChart as PieIcon } from 'lucide-react';
+import { Trash2, Search, ChevronLeft, ChevronRight, Pencil, CalendarDays, PieChart as PieIcon, Receipt } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme';
 
 const formatMonthLabel = (yyyyMM: string) => {
@@ -109,7 +109,7 @@ export const ExpenseList: React.FC<ExpenseListProps> = ({ expenses, onDelete, on
             <button
               onClick={() => setShowChart(v => !v)}
               title={showChart ? 'Hide chart' : 'Show chart'}
-              className={`p-1.5 rounded-md transition-colors ${showChart ? 'text-ink bg-paper-soft' : 'text-ink-muted hover:text-ink hover:bg-paper-soft'}`}
+              className={`p-2.5 sm:p-1.5 rounded-md transition-colors ${showChart ? 'text-ink bg-paper-soft' : 'text-ink-muted hover:text-ink hover:bg-paper-soft'}`}
             >
               <PieIcon className="w-4 h-4" />
             </button>
@@ -254,24 +254,35 @@ export const ExpenseList: React.FC<ExpenseListProps> = ({ expenses, onDelete, on
 
                       <div className="flex items-center gap-1 shrink-0">
                         <p className="num text-sm sm:text-base font-semibold text-ink">{formatCurrency(exp.amount)}</p>
-                        <div className="flex items-center gap-0.5">
-                          {onEdit && (
-                            <button
-                              onClick={() => onEdit(exp)}
-                              className="p-1.5 text-ink-muted hover:text-ink hover:bg-paper-soft rounded-md transition-colors"
-                              title="Edit"
-                            >
-                              <Pencil className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                            </button>
-                          )}
-                          <button
-                            onClick={() => onDelete(exp.id)}
-                            className="p-1.5 text-ink-muted hover:text-coral-600 hover:bg-coral-50 rounded-md transition-colors"
-                            title="Delete"
+                        {exp.isBillPayment ? (
+                          // Bill payments are managed on the Bills tab — read-only here.
+                          <span
+                            className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-ink-muted"
+                            title="From a paid bill — manage it on the Bills tab"
                           >
-                            <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                          </button>
-                        </div>
+                            <Receipt className="w-3 h-3" />
+                            <span className="hidden sm:inline">Bill</span>
+                          </span>
+                        ) : (
+                          <div className="flex items-center gap-0.5">
+                            {onEdit && (
+                              <button
+                                onClick={() => onEdit(exp)}
+                                className="p-2.5 sm:p-1.5 text-ink-muted hover:text-ink hover:bg-paper-soft rounded-md transition-colors"
+                                title="Edit"
+                              >
+                                <Pencil className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                              </button>
+                            )}
+                            <button
+                              onClick={() => onDelete(exp.id)}
+                              className="p-2.5 sm:p-1.5 text-ink-muted hover:text-coral-600 hover:bg-coral-50 rounded-md transition-colors"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -291,7 +302,7 @@ export const ExpenseList: React.FC<ExpenseListProps> = ({ expenses, onDelete, on
             <button
               onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
               disabled={currentPage === 1}
-              className="p-1.5 rounded-md hover:bg-paper-soft disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
+              className="p-2.5 sm:p-1.5 rounded-md hover:bg-paper-soft disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
@@ -299,7 +310,7 @@ export const ExpenseList: React.FC<ExpenseListProps> = ({ expenses, onDelete, on
             <button
               onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
               disabled={currentPage === totalPages}
-              className="p-1.5 rounded-md hover:bg-paper-soft disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
+              className="p-2.5 sm:p-1.5 rounded-md hover:bg-paper-soft disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
             >
               <ChevronRight className="w-4 h-4" />
             </button>

@@ -65,6 +65,12 @@ export interface Expense {
   category: Category;
   amount: number;
   description: string;
+  /**
+   * True for synthetic expense rows derived from a settled Bill payment.
+   * These are read-only in the Expenses list (edit/delete happens on the Bills
+   * tab) but count toward all expense totals, charts, and reports.
+   */
+  isBillPayment?: boolean;
 }
 
 /** Outcome of attempting to settle a bill, so the UI can give feedback. */

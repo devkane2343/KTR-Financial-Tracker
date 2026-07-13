@@ -67,14 +67,14 @@ export const IncomeList: React.FC<IncomeListProps> = ({ history, onDelete, onEdi
                       <div className="flex items-center gap-0.5 ml-1">
                         <button
                           onClick={() => onEdit(item)}
-                          className="p-1.5 text-ink-muted hover:text-ink hover:bg-paper-soft rounded-md transition-colors"
+                          className="p-2.5 sm:p-1.5 text-ink-muted hover:text-ink hover:bg-paper-soft rounded-md transition-colors"
                           title="Edit record"
                         >
                           <Edit2 className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => onDelete(item.id)}
-                          className="p-1.5 text-ink-muted hover:text-coral-600 hover:bg-coral-50 rounded-md transition-colors"
+                          className="p-2.5 sm:p-1.5 text-ink-muted hover:text-coral-600 hover:bg-coral-50 rounded-md transition-colors"
                           title="Delete record"
                         >
                           <Trash2 className="w-4 h-4" />

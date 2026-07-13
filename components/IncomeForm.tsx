@@ -99,7 +99,8 @@ export const IncomeForm: React.FC<IncomeFormProps> = ({ onAdd, onUpdate, editing
 
   const billsTotal = bills.filter(b => selectedBills.has(b.id)).reduce((sum, b) => sum + b.amount, 0);
 
-  const currentNet = getNetIncome({
+  // Net income (analytics) excludes bills — they count as expenses, not deductions.
+  const netIncome = getNetIncome({
     weeklySalary: parseFloat(formData.weeklySalary) || 0,
     sss: parseFloat(formData.sss) || 0,
     pagibig: parseFloat(formData.pagibig) || 0,
@@ -107,8 +108,10 @@ export const IncomeForm: React.FC<IncomeFormProps> = ({ onAdd, onUpdate, editing
     vul: parseFloat(formData.vul) || 0,
     emergencyFund: parseFloat(formData.emergencyFund) || 0,
     generalSavings: parseFloat(formData.generalSavings) || 0,
-    paidBills: bills.filter(b => selectedBills.has(b.id)).map(b => ({ amount: b.amount })),
   });
+  // "Take home" is a cash figure: what's left after settling any bills from this
+  // paycheck. Those bills are still recorded as expenses elsewhere.
+  const currentNet = netIncome - billsTotal;
 
   const labelClass = "text-xs font-medium text-ink-soft mb-1 block";
   const inputClass = "w-full px-3 py-2 bg-paper border border-rule rounded-lg focus:border-ink/30 focus:ring-2 focus:ring-ink/5 outline-none num text-sm text-ink placeholder:text-ink-whisper transition-all";
@@ -123,7 +126,7 @@ export const IncomeForm: React.FC<IncomeFormProps> = ({ onAdd, onUpdate, editing
           </h2>
         </div>
         {editingEntry && onCancelEdit && (
-          <button onClick={onCancelEdit} className="p-1.5 hover:bg-paper-soft rounded-md text-ink-muted hover:text-ink transition-colors">
+          <button onClick={onCancelEdit} className="p-2.5 -m-1 hover:bg-paper-soft rounded-md text-ink-muted hover:text-ink transition-colors">
             <X className="w-4 h-4" />
           </button>
         )}
@@ -253,10 +256,10 @@ export const IncomeForm: React.FC<IncomeFormProps> = ({ onAdd, onUpdate, editing
                   <span className="font-medium">{duplicateWarning.billName}</span> already settled. Add anyway?
                 </p>
                 <div className="flex gap-1.5 mt-2">
-                  <button type="button" onClick={confirmDuplicate} className="px-3 py-1 bg-ink text-paper text-xs font-medium rounded-md hover:bg-ink-soft transition-colors">
+                  <button type="button" onClick={confirmDuplicate} className="px-3 py-2 bg-ink text-paper text-xs font-medium rounded-md hover:bg-ink-soft transition-colors">
                     Yes, add it
                   </button>
-                  <button type="button" onClick={() => setDuplicateWarning(null)} className="px-3 py-1 bg-paper text-ink border border-rule text-xs font-medium rounded-md hover:bg-paper-soft transition-colors">
+                  <button type="button" onClick={() => setDuplicateWarning(null)} className="px-3 py-2 bg-paper text-ink border border-rule text-xs font-medium rounded-md hover:bg-paper-soft transition-colors">
                     Cancel
                   </button>
                 </div>

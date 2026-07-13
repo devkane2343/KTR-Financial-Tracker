@@ -79,10 +79,10 @@ export const AuthPage: React.FC = () => {
         <div className="absolute -bottom-32 -left-20 w-72 h-72 rounded-full bg-paper/5 blur-3xl pointer-events-none" />
 
         <div className="relative z-10 flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-lg bg-paper/10 flex items-center justify-center">
-            <img src={LOGO_URL} className="w-6 h-6 object-contain" alt="" />
+          <div className="w-9 h-9 rounded-lg overflow-hidden bg-paper flex items-center justify-center">
+            <img src={LOGO_URL} className="w-full h-full object-contain" alt="" />
           </div>
-          <span className="font-display text-base text-paper tracking-tight">KTR Finance</span>
+          <span className="font-display text-base text-paper tracking-tight">Fintech</span>
         </div>
 
         <div className="relative z-10 my-10 lg:my-0 max-w-md">
