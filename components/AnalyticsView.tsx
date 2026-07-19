@@ -103,7 +103,14 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ data }) => {
             wallet: balances.balances.wallet,
             debit: balances.balances.debit,
             custom: accounts.ok
-              ? accounts.value.map((a) => ({ name: a.name, balance: a.balance, liquidity: a.liquidity }))
+              ? accounts.value.map((a) => ({
+                  name: a.name,
+                  balance: a.balance,
+                  liquidity: a.liquidity,
+                  accountType: a.accountType,
+                  contributedValue: a.contributedValue,
+                  provider: a.provider,
+                }))
               : [],
           };
         }

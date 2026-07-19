@@ -59,6 +59,28 @@ export interface IncomeEntry {
   paidBills?: PaidBill[];
 }
 
+/**
+ * Where the money for an expense was pulled from. Only liquid pots are valid
+ * sources. `kind` picks the pot; `id` identifies the specific custom card when
+ * kind === 'custom'; `label` is a display snapshot so the Expenses list can show
+ * the source even if the underlying card is later renamed or deleted.
+ *   - wallet / debit  → decrements the stored wallet_balance column directly.
+ *   - custom          → decrements that custom_savings_accounts row's balance.
+ *   - savings         → a computed bucket (EF / General / Other). Pulling from it
+ *                       records a linked negative "withdrawal" expense in that
+ *                       bucket's category, which lowers the computed total.
+ *                       `id` holds the SavingsBucket key ('emergencyFund'…).
+ */
+export type ExpenseSourceKind = 'wallet' | 'debit' | 'custom' | 'savings';
+
+export interface ExpenseSource {
+  kind: ExpenseSourceKind;
+  /** Custom-card UUID (kind='custom') or SavingsBucket key (kind='savings'). */
+  id?: string;
+  /** Display snapshot, e.g. "Debit Card", "Emergency Fund", "House fund". */
+  label: string;
+}
+
 export interface Expense {
   id: string;
   date: string;
@@ -71,6 +93,44 @@ export interface Expense {
    * tab) but count toward all expense totals, charts, and reports.
    */
   isBillPayment?: boolean;
+  /**
+   * Which liquid pot this expense was paid from. When set, adding the expense
+   * auto-deducts the amount from that pot and deleting it reverses the deduction.
+   * Undefined for legacy / untagged expenses (no balance effect).
+   */
+  source?: ExpenseSource;
+  /**
+   * When set, this row is a synthetic negative "withdrawal" that pairs with a
+   * real expense (whose id this holds) funded from a computed savings bucket.
+   * It carries a negative amount in the bucket's category so the bucket total
+   * drops. Hidden from the Expenses list; deleting the parent deletes this too.
+   */
+  savingsWithdrawalFor?: string;
+  /**
+   * When set, this row is a synthetic leg of a self-transfer between two pots
+   * (see {@link PotTransfer}). It carries a signed amount in a computed savings
+   * bucket's category — negative on the "from" leg, positive on the "to" leg —
+   * so the bucket totals shift. All legs of one transfer share this id. Hidden
+   * from the Expenses list; both legs are removed together.
+   */
+  transferId?: string;
+}
+
+/**
+ * A record of moving money between the user's own pots (a "bank transfer to
+ * self"). Persisted so transfers can be listed and undone. Stored-pot legs
+ * (Wallet / Debit / custom) adjust those balances directly and leave no expense
+ * row; computed-bucket legs (EF / General / Other / MP2) are realized as signed
+ * `transferId` expense rows. `from`/`to` reuse ExpenseSource as a pot pointer.
+ */
+export interface PotTransfer {
+  id: string;
+  /** YYYY-MM-DD */
+  date: string;
+  from: ExpenseSource;
+  to: ExpenseSource;
+  amount: number;
+  note?: string;
 }
 
 /** Outcome of attempting to settle a bill, so the UI can give feedback. */

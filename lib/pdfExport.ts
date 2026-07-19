@@ -19,7 +19,14 @@ interface CategoryTotal {
 export interface NetWorthSnapshot {
   wallet: number;
   debit: number;
-  custom: { name: string; balance: number; liquidity: 'liquid' | 'nonliquid' }[];
+  custom: {
+    name: string;
+    balance: number;               // for an investment card, the current fund value
+    liquidity: 'liquid' | 'nonliquid';
+    accountType?: 'savings' | 'investment';
+    contributedValue?: number;
+    provider?: string | null;
+  }[];
 }
 
 // ---------------------------------------------------------------------------
@@ -296,9 +303,23 @@ export const generateFinancialReportPDF = async (
       ['Pag-IBIG MP2', 'Non-liquid', formatCurrencyPHP(savings.pagibigMP2)],
     ];
     if (savings.other > 0) nwRows.push(['Other Savings', 'Liquid', formatCurrencyPHP(savings.other)]);
-    netWorth.custom.forEach((c) =>
-      nwRows.push([c.name, c.liquidity === 'nonliquid' ? 'Non-liquid' : 'Liquid', formatCurrencyPHP(c.balance)]),
-    );
+    netWorth.custom.forEach((c) => {
+      const liq = c.liquidity === 'nonliquid' ? 'Non-liquid' : 'Liquid';
+      if (c.accountType === 'investment') {
+        // Show fund value + growth vs what was contributed.
+        const contributed = c.contributedValue ?? 0;
+        const gain = c.balance - contributed;
+        const pct = contributed > 0 ? (gain / contributed) * 100 : null;
+        const sign = gain >= 0 ? '+' : '-';
+        const growthStr = pct === null
+          ? `${sign}${formatCurrencyPHP(Math.abs(gain))}`
+          : `${sign}${formatCurrencyPHP(Math.abs(gain))} (${sign}${Math.abs(pct).toFixed(1)}%)`;
+        const label = `${c.name}${c.provider ? ` — ${c.provider}` : ''} · invested ${formatCurrencyPHP(contributed)}, ${growthStr}`;
+        nwRows.push([label, liq, formatCurrencyPHP(c.balance)]);
+      } else {
+        nwRows.push([c.name, liq, formatCurrencyPHP(c.balance)]);
+      }
+    });
 
     autoTable(doc, {
       ...tableBase,

@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
-import { Portfolio } from '../types';
+import { Portfolio, FinancialData } from '../types';
+import { fromIncomeRow, fromExpenseRow, fromBillRow, fromBillPaymentRow } from './supabaseSave';
 
 export interface UserAccount {
   id: string;
@@ -538,6 +539,38 @@ export async function loadUserPortfolio(userId: string): Promise<Portfolio | nul
     return portfolio;
   } catch (err) {
     console.error('Error in loadUserPortfolio:', err);
+    return null;
+  }
+}
+
+/**
+ * Load the income, expense, bill and bill-payment rows a specific user has
+ * entered (admin only). Requires the admin SELECT policies from
+ * supabase/admin_view_financial_data.sql — without them RLS silently
+ * returns empty arrays for other users' rows.
+ */
+export async function loadUserFinancialData(userId: string): Promise<FinancialData | null> {
+  try {
+    const [incomeRes, expenseRes, billsRes, paymentsRes] = await Promise.all([
+      supabase.from('income_history').select('*').eq('user_id', userId).order('date', { ascending: false }),
+      supabase.from('expenses').select('*').eq('user_id', userId).order('date', { ascending: false }),
+      supabase.from('bills').select('*').eq('user_id', userId).order('due_date', { ascending: true }),
+      supabase.from('bill_payments').select('*').eq('user_id', userId).order('paid_date', { ascending: false }),
+    ]);
+
+    if (incomeRes.error && expenseRes.error) {
+      console.error('Error loading user financial data:', incomeRes.error);
+      return null;
+    }
+
+    return {
+      incomeHistory: incomeRes.error ? [] : (incomeRes.data ?? []).map(fromIncomeRow),
+      expenses: expenseRes.error ? [] : (expenseRes.data ?? []).map(fromExpenseRow),
+      bills: billsRes.error ? [] : (billsRes.data ?? []).map(fromBillRow),
+      billPayments: paymentsRes.error ? [] : (paymentsRes.data ?? []).map(fromBillPaymentRow),
+    };
+  } catch (err) {
+    console.error('Error in loadUserFinancialData:', err);
     return null;
   }
 }

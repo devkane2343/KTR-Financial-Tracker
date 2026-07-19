@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { FinancialData } from '../types';
-import { formatCurrency, formatDateString, getSavingsBreakdown, getSavingsContributions, type SavingsBucket } from '../lib/utils';
+import { FinancialData, ExpenseSource } from '../types';
+import { formatCurrency, formatDateString, getLocalDateString, getSavingsBreakdown, getSavingsContributions, type SavingsBucket } from '../lib/utils';
+import type { FundingSource } from './ExpenseForm';
 import { loadWalletBalances, saveWalletBalance, type BalanceField } from '../lib/walletStore';
 import {
   loadCustomSavingsAccounts,
@@ -10,11 +11,98 @@ import {
   uploadCardBackground,
   type CustomSavingsAccount,
   type Liquidity,
+  type AccountType,
+  type PaidMonths,
 } from '../lib/customSavingsStore';
-import { Wallet, PiggyBank, Shield, Landmark, Coins, CreditCard, Check, Pencil, X, Banknote, Receipt, ChevronLeft, ChevronRight, Plus, Trash2, ImagePlus, Loader2 } from 'lucide-react';
+import { loadValueHistory, appendValueSnapshot, type ValueSnapshot } from '../lib/investmentHistoryStore';
+import {
+  projectMp2,
+  rateForYear,
+  MP2_TERM_YEARS,
+  MP2_MIN_CONTRIBUTION,
+  MP2_LATEST_RATE_PCT,
+  MP2_HISTORICAL_RATES,
+  type Mp2PayoutMode,
+  type Mp2YearRow,
+} from '../lib/mp2Projection';
+import { useModal } from '../lib/useModal';
+import { ModalPortal } from './ModalPortal';
+import { Wallet, PiggyBank, Shield, Landmark, Coins, CreditCard, Check, Pencil, X, Banknote, Receipt, ChevronLeft, ChevronRight, Plus, Trash2, ImagePlus, Loader2, ArrowDownRight, ArrowRightLeft, ArrowRight, TrendingUp, TrendingDown, LineChart, Sparkles, Sprout, Lock, Info, RotateCcw } from 'lucide-react';
+
+/**
+ * Growth of an investment/VUL card: current fund value vs what was paid in.
+ * `pct` is null when there's nothing contributed yet (avoids divide-by-zero).
+ */
+export interface Growth {
+  gain: number;      // fundValue − contributed (can be negative)
+  pct: number | null;
+  up: boolean;       // gain >= 0
+}
+const computeGrowth = (fundValue: number, contributed: number): Growth => {
+  const gain = fundValue - contributed;
+  const pct = contributed > 0 ? (gain / contributed) * 100 : null;
+  return { gain, pct, up: gain >= 0 };
+};
+/** Short month labels for the paid-months grid, index 0 = Jan. */
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "+₱18,400 (+15.3%)" / "−₱2,000 (−4.1%)". Sign always shown. */
+const formatGrowth = (g: Growth): string => {
+  const sign = g.gain >= 0 ? '+' : '−';
+  const money = `${sign}${formatCurrency(Math.abs(g.gain))}`;
+  if (g.pct === null) return money;
+  const pctSign = g.pct >= 0 ? '+' : '−';
+  return `${money} (${pctSign}${Math.abs(g.pct).toFixed(1)}%)`;
+};
+
+/**
+ * Tiny inline SVG sparkline of a value series (no chart lib). Scales the series
+ * to fit the box; draws a soft area fill under a 2px line. Flat/empty series
+ * render a centered baseline. Color follows overall direction (up=jade, down=coral).
+ */
+const Sparkline: React.FC<{ values: number[]; className?: string; up?: boolean }> = ({ values, className, up = true }) => {
+  const W = 240, H = 56, P = 4;
+  if (values.length === 0) return null;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  const n = values.length;
+  const x = (i: number) => (n === 1 ? W / 2 : P + (i / (n - 1)) * (W - 2 * P));
+  const y = (v: number) => H - P - ((v - min) / span) * (H - 2 * P);
+  const pts = values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`);
+  const line = `M ${pts.join(' L ')}`;
+  const area = `${line} L ${x(n - 1).toFixed(1)},${H - P} L ${x(0).toFixed(1)},${H - P} Z`;
+  const stroke = up ? '#16a34a' : '#e11d48';
+  const fill = up ? 'rgba(22,163,74,0.12)' : 'rgba(225,29,72,0.12)';
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className={className} preserveAspectRatio="none" aria-hidden="true">
+      {n > 1 && <path d={area} fill={fill} stroke="none" />}
+      {n > 1
+        ? <path d={line} fill="none" stroke={stroke} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+        : <circle cx={x(0)} cy={y(values[0])} r={3} fill={stroke} />}
+    </svg>
+  );
+};
 
 interface NetWorthTabProps {
   data: FinancialData;
+  /**
+   * Whether this tab is the one currently on screen. The panel stays mounted
+   * when hidden (see App's HIDDEN_PANEL), so we re-fetch wallet/debit/custom
+   * balances each time it becomes active — an expense logged on another tab may
+   * have deducted from one of these stored pots in the meantime.
+   */
+  active?: boolean;
+  /** Every pot the user can move money between (from App's funding hook). */
+  pots?: FundingSource[];
+  /** Perform a self-transfer between two pots; resolves ok/error. */
+  onTransfer?: (
+    from: ExpenseSource,
+    to: ExpenseSource,
+    amount: number,
+    date: string,
+    note?: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
 }
 
 /**
@@ -302,24 +390,318 @@ const BalanceCard: React.FC<BalanceCardProps> = ({ field, title, hint, icon, val
 };
 
 /**
+ * A tiny stacked growth-bar chart for the MP2 projection — one bar per year,
+ * split into "your money" (contributions carried in) and "dividends earned",
+ * so you can see the tax-free dividend slice grow as it compounds. Pure inline
+ * SVG (the file already avoids chart libs for these small visuals).
+ */
+const Mp2GrowthBars: React.FC<{ rows: Mp2YearRow[]; className?: string }> = ({ rows, className }) => {
+  if (rows.length === 0) return null;
+  const W = 320, H = 120, PAD_B = 16, PAD_T = 8, GAP = 10;
+  const max = Math.max(...rows.map(r => r.closing), 1);
+  const n = rows.length;
+  const bw = (W - GAP * (n - 1)) / n;
+  const scaleY = (v: number) => (v / max) * (H - PAD_B - PAD_T);
+  // Use the same non-negative opening the projection clamps to (projectMp2 floors
+  // a negative/NaN balance at 0). Reading it straight from the first row keeps the
+  // bar's "your money" split in lock-step with the row closings it's drawn against.
+  const opening0 = rows[0].opening;
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className={className} preserveAspectRatio="none" aria-hidden="true">
+      {rows.map((r, i) => {
+        // "Principal" portion of the closing balance = own money in the account at
+        // year end (opening + contributions to date); the rest is accumulated dividend.
+        const principal = opening0 + r.contributions * r.index;
+        const principalH = scaleY(Math.min(principal, r.closing));
+        const dividendH = scaleY(Math.max(r.closing - principal, 0));
+        const x = i * (bw + GAP);
+        const baseY = H - PAD_B;
+        return (
+          <g key={r.year}>
+            <rect x={x} y={baseY - principalH} width={bw} height={principalH} rx={2} fill="currentColor" className="text-ink/25 dark:text-white/25" />
+            <rect x={x} y={baseY - principalH - dividendH} width={bw} height={dividendH} rx={2} fill={MP2_INDIGO} />
+            <text x={x + bw / 2} y={H - 4} textAnchor="middle" className="fill-ink-muted" fontSize="8">{`'${String(r.year).slice(2)}`}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+};
+
+/**
+ * Projection tab for the Pag-IBIG MP2 card. Projects the 5-year maturity value
+ * from the current MP2 balance (opening) plus an editable monthly contribution,
+ * compounding tax-free dividends annually on the average-monthly-balance basis
+ * (see lib/mp2Projection). Every year's assumed dividend rate is individually
+ * editable and prefilled at the latest declared rate (2025 = 7.12%). A toggle
+ * switches between MP2's two payout modes: compounded (reinvested, lump sum at
+ * maturity) vs annual payout (dividends paid out yearly, principal flat).
+ */
+interface Mp2ProjectionPanelProps {
+  /** Current MP2 savings (tagged contributions) — the projection's opening balance. */
+  openingBalance: number;
+}
+
+const Mp2ProjectionPanel: React.FC<Mp2ProjectionPanelProps> = ({ openingBalance }) => {
+  // Projection starts this calendar year. Years run startYear … startYear+4.
+  const startYear = useMemo(() => new Date().getFullYear(), []);
+  const [monthly, setMonthly] = useState<string>(String(MP2_MIN_CONTRIBUTION));
+  const [mode, setMode] = useState<Mp2PayoutMode>('compounded');
+  // Per-year assumed rate (%). Prefilled to the latest declared rate for all 5
+  // years; each year individually editable. Kept as strings so a half-typed
+  // value (e.g. "7.") doesn't snap to a number mid-edit.
+  const [rates, setRates] = useState<string[]>(() =>
+    Array.from({ length: MP2_TERM_YEARS }, () => String(MP2_LATEST_RATE_PCT)),
+  );
+
+  const monthlyNum = parseFloat(monthly);
+  const ratesNum = rates.map(r => parseFloat(r));
+
+  const projection = useMemo(
+    () => projectMp2({
+      openingBalance,
+      monthlyContribution: Number.isFinite(monthlyNum) ? monthlyNum : 0,
+      startYear,
+      ratesPct: ratesNum.map(r => (Number.isFinite(r) ? r : 0)),
+      mode,
+    }),
+    // ratesNum/ratesNum are fresh arrays each render; depend on the string form.
+    [openingBalance, monthlyNum, startYear, rates, mode],
+  );
+
+  const setRate = (i: number, v: string) =>
+    setRates(prev => prev.map((r, idx) => (idx === i ? v : r)));
+
+  // "Set all years to this rate" from the first year's value — a quick way to
+  // apply one assumption across the whole term after editing year 1.
+  const applyFirstToAll = () =>
+    setRates(prev => prev.map(() => prev[0]));
+
+  const resetRates = () =>
+    setRates(Array.from({ length: MP2_TERM_YEARS }, () => String(MP2_LATEST_RATE_PCT)));
+
+  const monthlyInvalid = !Number.isFinite(monthlyNum) || monthlyNum < 0;
+  const belowMin = Number.isFinite(monthlyNum) && monthlyNum > 0 && monthlyNum < MP2_MIN_CONTRIBUTION;
+
+  const maturityYear = startYear + MP2_TERM_YEARS - 1;
+  const growthPct = projection.totalContributed > 0
+    ? (projection.totalDividends / projection.totalContributed) * 100
+    : 0;
+
+  const inputBox = 'bg-paper-soft/60 rounded-lg border border-rule outline-none text-ink focus:border-ink/30 transition-colors';
+
+  return (
+    <div className="p-4 sm:p-5 space-y-5">
+      {/* Headline result — the projected maturity value + tax-free dividend slice. */}
+      <div className="relative overflow-hidden rounded-xl p-4 sm:p-5 text-white" style={{ backgroundColor: MP2_INDIGO }}>
+        <div className="pointer-events-none absolute -top-10 -right-8 w-40 h-40 rounded-full bg-white/10 blur-2xl" />
+        {/* MP2 logo, top-right — on a soft white plate so its own indigo panel
+            doesn't disappear into the indigo card. A little inspiration. */}
+        <div className="pointer-events-none absolute top-3 right-3 sm:top-4 sm:right-4 rounded-lg bg-white/90 p-1 shadow-sm ring-1 ring-white/40">
+          <Mp2Logo className="h-8 sm:h-9 w-auto rounded-md" />
+        </div>
+        <div className="relative">
+          <p className="text-[11px] uppercase tracking-wider text-white/60 flex items-center gap-1.5 pr-20">
+            <Sparkles className="w-3.5 h-3.5" />
+            Projected {mode === 'compounded' ? 'maturity value' : 'principal at maturity'} · {maturityYear}
+          </p>
+          <p className="num text-3xl sm:text-4xl font-semibold tracking-tight mt-1">{formatCurrency(projection.maturityValue)}</p>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-3 text-[11px]">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-white/30" />
+              <span className="text-white/70">You put in</span>
+              <span className="font-semibold text-white">{formatCurrency(projection.totalContributed)}</span>
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-gold-400" />
+              <span className="text-white/70">{mode === 'compounded' ? 'Dividends earned' : 'Dividends paid out'}</span>
+              <span className="font-semibold text-gold-300">+{formatCurrency(projection.totalDividends)}</span>
+              {growthPct > 0 && <span className="text-white/50">(+{growthPct.toFixed(1)}%)</span>}
+            </span>
+          </div>
+          <p className="text-[10px] text-white/45 mt-2 inline-flex items-center gap-1">
+            <Lock className="w-3 h-3" /> Tax-free · locked in for {MP2_TERM_YEARS} years
+          </p>
+        </div>
+      </div>
+
+      {/* Growth chart — stacked own-money vs dividends per year. */}
+      <div className="rounded-xl border border-rule bg-paper-soft/40 p-4">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-[10px] uppercase tracking-wider text-ink-muted font-medium">Balance by year</p>
+          <div className="flex items-center gap-3 text-[10px] text-ink-muted">
+            <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-ink/25 dark:bg-white/25" /> Your money</span>
+            <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ backgroundColor: MP2_INDIGO }} /> Dividends</span>
+          </div>
+        </div>
+        <Mp2GrowthBars rows={projection.rows} className="w-full h-28" />
+      </div>
+
+      {/* Inputs — opening balance (read-only), monthly contribution, payout mode. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <span className="text-xs font-medium text-ink-soft">Starting balance</span>
+          <div className={`mt-1 flex items-baseline gap-1.5 px-3 py-2.5 ${inputBox} opacity-80`}>
+            <span className="text-ink-muted font-mono text-lg">₱</span>
+            <span className="num text-xl text-ink font-semibold">{formatCurrency(openingBalance).replace('₱', '')}</span>
+          </div>
+          <p className="text-[10px] text-ink-muted mt-1">Your MP2 savings so far (opening balance).</p>
+        </div>
+        <label className="block">
+          <span className="text-xs font-medium text-ink-soft">Monthly contribution</span>
+          <div className={`mt-1 flex items-baseline gap-1.5 px-3 py-2.5 ${inputBox} ${monthlyInvalid ? 'border-coral-400' : ''}`}>
+            <span className="text-ink-muted font-mono text-lg">₱</span>
+            <input
+              type="number" step="100" min="0" inputMode="decimal"
+              value={monthly}
+              onChange={(e) => setMonthly(e.target.value)}
+              placeholder="500"
+              className="flex-1 min-w-0 bg-transparent border-0 outline-none num text-xl text-ink font-semibold placeholder:text-ink-whisper"
+            />
+          </div>
+          <p className={`text-[10px] mt-1 ${belowMin ? 'text-gold-600 dark:text-gold-400' : 'text-ink-muted'}`}>
+            {belowMin ? `MP2 minimum is ₱${MP2_MIN_CONTRIBUTION} per remittance.` : `Added every month for ${MP2_TERM_YEARS} years. Min ₱${MP2_MIN_CONTRIBUTION}.`}
+          </p>
+        </label>
+      </div>
+
+      {/* Payout mode toggle — compounded vs annual dividend payout. */}
+      <div>
+        <span className="text-xs font-medium text-ink-soft">Dividend option</span>
+        <div className="mt-1 grid grid-cols-2 gap-2">
+          {([
+            { key: 'compounded' as const, label: 'Compounded', hint: 'Reinvested · lump sum at maturity', icon: <Sprout className="w-3.5 h-3.5" /> },
+            { key: 'annual' as const, label: 'Annual payout', hint: 'Paid out each year', icon: <Banknote className="w-3.5 h-3.5" /> },
+          ]).map(opt => (
+            <button
+              key={opt.key}
+              type="button"
+              onClick={() => setMode(opt.key)}
+              aria-pressed={mode === opt.key}
+              className={`px-3 py-2 rounded-lg text-sm font-medium border transition-colors text-left ${
+                mode === opt.key ? 'bg-ink text-paper border-ink' : 'bg-paper-soft/60 text-ink-soft border-rule hover:border-ink/30'
+              }`}
+            >
+              <span className="flex items-center gap-1.5">{opt.icon}{opt.label}</span>
+              <span className={`block text-[10px] font-normal mt-0.5 ${mode === opt.key ? 'text-paper/70' : 'text-ink-muted'}`}>{opt.hint}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Per-year editable dividend rates. */}
+      <div>
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-xs font-medium text-ink-soft">Assumed dividend rate per year</span>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={applyFirstToAll} className="text-[11px] font-medium text-ink-soft hover:text-ink transition-colors">
+              Apply {startYear} to all
+            </button>
+            <button type="button" onClick={resetRates} className="text-[11px] font-medium text-ink-soft hover:text-ink transition-colors inline-flex items-center gap-1">
+              <RotateCcw className="w-3 h-3" /> Reset
+            </button>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+          {rates.map((r, i) => (
+            <label key={i} className="block">
+              <span className="text-[10px] text-ink-muted font-mono">{startYear + i}</span>
+              <div className={`mt-0.5 flex items-baseline gap-1 px-2.5 py-2 ${inputBox}`}>
+                <input
+                  type="number" step="0.01" min="0" max="100" inputMode="decimal"
+                  value={r}
+                  onChange={(e) => setRate(i, e.target.value)}
+                  className="w-full min-w-0 bg-transparent border-0 outline-none num text-sm text-ink font-semibold placeholder:text-ink-whisper"
+                />
+                <span className="text-ink-muted text-xs">%</span>
+              </div>
+            </label>
+          ))}
+        </div>
+        <p className="text-[10px] text-ink-muted mt-2 inline-flex items-start gap-1 leading-relaxed">
+          <Info className="w-3 h-3 mt-px shrink-0" />
+          Prefilled at {MP2_LATEST_RATE_PCT}% — the latest declared rate (2025). The actual rate is set by Pag-IBIG each year and isn't guaranteed; this is a projection.
+        </p>
+      </div>
+
+      {/* Historical reference rates — read-only chips to pick realistic numbers. */}
+      <div>
+        <p className="text-[10px] uppercase tracking-wider text-ink-muted font-medium mb-1.5">Past declared rates (reference)</p>
+        <div className="flex flex-wrap gap-1.5">
+          {MP2_HISTORICAL_RATES.map(h => (
+            <span key={h.year} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-paper-soft/60 border border-rule text-[10px] text-ink-soft tabular-nums">
+              <span className="text-ink-muted">{h.year}</span>
+              <span className="font-semibold text-ink">{h.ratePct.toFixed(2)}%</span>
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Year-by-year breakdown table. */}
+      <div>
+        <p className="text-[10px] uppercase tracking-wider text-ink-muted font-medium mb-1.5">Year-by-year breakdown</p>
+        <div className="overflow-x-auto rounded-lg border border-rule">
+          <table className="w-full text-[11px] min-w-[440px]">
+            <thead>
+              <tr className="bg-paper-soft/60 text-ink-muted text-left">
+                <th className="font-medium px-2.5 py-2">Year</th>
+                <th className="font-medium px-2.5 py-2 text-right">Opening</th>
+                <th className="font-medium px-2.5 py-2 text-right">+ Contrib</th>
+                <th className="font-medium px-2.5 py-2 text-right">Rate</th>
+                <th className="font-medium px-2.5 py-2 text-right">Dividend</th>
+                <th className="font-medium px-2.5 py-2 text-right">{mode === 'compounded' ? 'Closing' : 'Balance'}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-rule">
+              {projection.rows.map(row => (
+                <tr key={row.year} className="text-ink">
+                  <td className="px-2.5 py-2 font-mono text-ink-soft">{row.year}</td>
+                  <td className="px-2.5 py-2 text-right num tabular-nums">{formatCurrency(row.opening)}</td>
+                  <td className="px-2.5 py-2 text-right num tabular-nums text-ink-muted">{formatCurrency(row.contributions)}</td>
+                  <td className="px-2.5 py-2 text-right num tabular-nums text-ink-soft">{row.ratePct.toFixed(2)}%</td>
+                  <td className="px-2.5 py-2 text-right num tabular-nums font-semibold text-jade-600 dark:text-jade-400">+{formatCurrency(row.dividend)}</td>
+                  <td className="px-2.5 py-2 text-right num tabular-nums font-semibold">{formatCurrency(row.closing)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {mode === 'annual' && (
+          <p className="text-[10px] text-ink-muted mt-1.5">Under annual payout, each year's dividend is paid to you in cash, so the balance grows only from your contributions.</p>
+        )}
+      </div>
+    </div>
+  );
+};
+
+/**
  * Detail modal for a savings bucket — lists every contribution (how much + when),
- * newest first, with a running total. Opened by clicking a savings card.
+ * newest first, with a running total. Opened by clicking a savings card. For the
+ * Pag-IBIG MP2 bucket it also carries a "Projection" tab (see Mp2ProjectionPanel)
+ * that forecasts the 5-year maturity value from the current balance.
  */
 interface SavingsDetailModalProps {
   bucket: SavingsBucket;
   title: string;
   data: FinancialData;
   onClose: () => void;
+  /** Enables the MP2 Projection tab. When set, its value seeds the opening balance. */
+  mp2Balance?: number;
 }
 
 const PAGE_SIZE = 8;
 
-const SavingsDetailModal: React.FC<SavingsDetailModalProps> = ({ bucket, title, data, onClose }) => {
+const SavingsDetailModal: React.FC<SavingsDetailModalProps> = ({ bucket, title, data, onClose, mp2Balance }) => {
   const contributions = useMemo(
     () => getSavingsContributions(bucket, data.incomeHistory, data.expenses),
     [bucket, data.incomeHistory, data.expenses],
   );
   const total = contributions.reduce((s, c) => s + c.amount, 0);
+
+  // The Projection tab is available only for MP2 (when a balance is provided).
+  const hasProjection = mp2Balance !== undefined;
+  const [tab, setTab] = useState<'contributions' | 'projection'>('contributions');
+  const onProjection = hasProjection && tab === 'projection';
 
   const [page, setPage] = useState(0);
   const pageCount = Math.max(1, Math.ceil(contributions.length / PAGE_SIZE));
@@ -327,33 +709,32 @@ const SavingsDetailModal: React.FC<SavingsDetailModalProps> = ({ bucket, title, 
   const pageStart = safePage * PAGE_SIZE;
   const pageItems = contributions.slice(pageStart, pageStart + PAGE_SIZE);
 
-  // Close on Escape.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  // Escape close, focus trap, scroll lock, focus restore — see useModal.
+  const panelRef = useModal<HTMLDivElement>(onClose);
 
   return (
+    <ModalPortal>
     <div
-      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-ink/40 backdrop-blur-sm animate-fade-in p-0 sm:p-4"
+      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/50 dark:bg-black/60 backdrop-blur-sm animate-fade-in p-0 sm:p-4"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label={`${title} contributions`}
     >
       <div
-        className="bg-paper w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl border border-rule shadow-paper-lift max-h-[85vh] flex flex-col animate-fade-up"
+        ref={panelRef}
+        tabIndex={-1}
+        className={`bg-paper w-full sm:rounded-2xl rounded-t-2xl border border-rule shadow-paper-lift max-h-[85vh] flex flex-col animate-fade-up focus:outline-none transition-[max-width] ${onProjection ? 'sm:max-w-2xl' : 'sm:max-w-md'}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-start justify-between gap-3 p-5 border-b border-rule">
           <div>
-            <p className="text-xs text-ink-muted mb-0.5">Savings contributions</p>
+            <p className="eyebrow mb-1">{hasProjection ? 'Pag-IBIG MP2 savings' : 'Savings contributions'}</p>
             <h3 className="font-display text-lg text-ink tracking-tight">{title}</h3>
-            <p className="num text-2xl font-semibold text-ink mt-1">{formatCurrency(total)}</p>
-            <p className="text-[11px] text-ink-muted mt-0.5">
-              {contributions.length} {contributions.length === 1 ? 'contribution' : 'contributions'}
+            <p className="num text-3xl font-semibold text-ink tracking-tight mt-1.5">{formatCurrency(total)}</p>
+            <p className="text-[11px] text-ink-muted mt-1">
+              Total set aside across {contributions.length} {contributions.length === 1 ? 'contribution' : 'contributions'}
             </p>
           </div>
           <button
@@ -365,30 +746,84 @@ const SavingsDetailModal: React.FC<SavingsDetailModalProps> = ({ bucket, title, 
           </button>
         </div>
 
+        {/* Tab bar — only when the Projection tab exists (MP2). */}
+        {hasProjection && (
+          <div className="flex items-center gap-1 px-3 pt-3 border-b border-rule" role="tablist" aria-label="MP2 views">
+            {([
+              { key: 'contributions' as const, label: 'Contributions', icon: <Receipt className="w-3.5 h-3.5" /> },
+              { key: 'projection' as const, label: 'Projection', icon: <TrendingUp className="w-3.5 h-3.5" /> },
+            ]).map(t => (
+              <button
+                key={t.key}
+                role="tab"
+                aria-selected={tab === t.key}
+                onClick={() => setTab(t.key)}
+                className={`inline-flex items-center gap-1.5 text-sm font-medium px-3.5 py-2 rounded-t-lg border-b-2 -mb-px transition-colors ${
+                  tab === t.key
+                    ? 'border-ink text-ink'
+                    : 'border-transparent text-ink-muted hover:text-ink-soft'
+                }`}
+              >
+                {t.icon}{t.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Projection tab (MP2 only) */}
+        {onProjection ? (
+          <div className="overflow-y-auto flex-1" role="tabpanel">
+            <Mp2ProjectionPanel openingBalance={mp2Balance!} />
+          </div>
+        ) : (
+        <>
         {/* List */}
-        <div className="overflow-y-auto p-3 flex-1">
+        <div className="overflow-y-auto p-3 flex-1" role={hasProjection ? 'tabpanel' : undefined}>
           {contributions.length === 0 ? (
-            <p className="text-sm text-ink-muted text-center py-10">No contributions recorded yet.</p>
+            <div className="flex flex-col items-center text-center py-12 px-6">
+              <span className="w-11 h-11 rounded-xl bg-paper-soft text-ink-muted flex items-center justify-center mb-3">
+                <PiggyBank className="w-5 h-5" />
+              </span>
+              <p className="text-sm font-medium text-ink">Nothing set aside yet</p>
+              <p className="text-[11px] text-ink-muted mt-1 max-w-[220px] leading-relaxed">
+                Contributions from your paychecks or expenses tagged to this pot will show up here.
+              </p>
+            </div>
           ) : (
             <ul className="space-y-1">
-              {pageItems.map((c, i) => (
+              {pageItems.map((c, i) => {
+                const isWithdrawal = c.source === 'withdrawal';
+                return (
                 <li key={pageStart + i} className="flex items-center gap-3 px-2.5 py-2.5 rounded-lg hover:bg-paper-soft transition-colors">
                   <span className={`w-8 h-8 rounded-md flex items-center justify-center shrink-0 ${
                     c.source === 'paycheck'
                       ? 'bg-jade-50 text-jade-600 dark:bg-jade-900/50 dark:text-jade-400'
-                      : 'bg-paper-soft text-ink-soft'
+                      : isWithdrawal
+                        ? 'bg-coral-50 text-coral-600 dark:bg-coral-900/40 dark:text-coral-400'
+                        : 'bg-paper-soft text-ink-soft'
                   }`}>
-                    {c.source === 'paycheck' ? <Banknote className="w-4 h-4" /> : <Receipt className="w-4 h-4" />}
+                    {c.source === 'paycheck'
+                      ? <Banknote className="w-4 h-4" />
+                      : isWithdrawal
+                        ? <ArrowDownRight className="w-4 h-4" />
+                        : <Receipt className="w-4 h-4" />}
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm text-ink leading-tight">{formatDateString(c.date)}</p>
                     <p className="text-[11px] text-ink-muted truncate">
-                      {c.source === 'paycheck' ? 'From paycheck' : (c.description || 'Logged as expense')}
+                      {c.source === 'paycheck'
+                        ? 'From paycheck'
+                        : isWithdrawal
+                          ? (c.description || 'Withdrawn')
+                          : (c.description || 'Logged as expense')}
                     </p>
                   </div>
-                  <span className="num text-sm font-semibold text-ink shrink-0">{formatCurrency(c.amount)}</span>
+                  <span className={`num text-sm font-semibold shrink-0 tabular-nums ${isWithdrawal ? 'text-coral-600 dark:text-coral-400' : 'text-jade-600 dark:text-jade-400'}`}>
+                    {isWithdrawal ? `−${formatCurrency(Math.abs(c.amount))}` : `+${formatCurrency(c.amount)}`}
+                  </span>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </div>
@@ -408,7 +843,6 @@ const SavingsDetailModal: React.FC<SavingsDetailModalProps> = ({ bucket, title, 
               >
                 <ChevronLeft className="w-4 h-4 text-ink" />
               </button>
-              <span className="text-[11px] text-ink-muted font-mono px-1.5 select-none">{safePage + 1}/{pageCount}</span>
               <button
                 onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))}
                 disabled={safePage >= pageCount - 1}
@@ -420,8 +854,248 @@ const SavingsDetailModal: React.FC<SavingsDetailModalProps> = ({ bucket, title, 
             </div>
           </div>
         )}
+        </>
+        )}
       </div>
     </div>
+    </ModalPortal>
+  );
+};
+
+/**
+ * Growth-detail modal for an investment / VUL card. Shows the current fund value
+ * and growth-vs-contributed headline, a sparkline of the fund value over time,
+ * and a dated log of every snapshot (value, change since the previous point, and
+ * growth-vs-contributed at that date). History is loaded from
+ * investment_value_history; the current card values are always shown as the
+ * newest point even if no snapshot row exists yet. Mirrors SavingsDetailModal's
+ * overlay shell (backdrop + Escape close).
+ */
+interface InvestmentDetailModalProps {
+  account: CustomSavingsAccount;
+  onClose: () => void;
+  onEdit: () => void;
+}
+
+const INV_PAGE_SIZE = 8;
+
+const InvestmentDetailModal: React.FC<InvestmentDetailModalProps> = ({ account, onClose, onEdit }) => {
+  const [history, setHistory] = useState<ValueSnapshot[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadValueHistory(account.id).then((res) => {
+      if (cancelled) return;
+      if (res.ok) setHistory(res.value);
+      setLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [account.id]);
+
+  // Escape close, focus trap, scroll lock, focus restore — see useModal.
+  const panelRef = useModal<HTMLDivElement>(onClose);
+
+  const growth = computeGrowth(account.balance, account.contributedValue);
+
+  // History oldest→newest for the sparkline, collapsed to ONE point per date
+  // (keeping the latest value for that day) so same-day edits never render as a
+  // fake growth line. If the newest point doesn't match the card's current value
+  // (e.g. changed via transfer without reopening), replace/append today's point
+  // so the chart ends at "today". Compared in cents to dodge float drift vs the
+  // numeric(12,2) DB storage.
+  const points = useMemo(() => {
+    const cents = (n: number) => Math.round(n * 100);
+    // Collapse to last-per-date, preserving date order.
+    const byDate = new Map<string, { date: string; fundValue: number; contributed: number }>();
+    for (const h of history) byDate.set(h.asOf, { date: h.asOf, fundValue: h.fundValue, contributed: h.contributedValue });
+    const pts = Array.from(byDate.values()).sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+    const today = getLocalDateString();
+    const last = pts[pts.length - 1];
+    const matchesNow = last && cents(last.fundValue) === cents(account.balance) && cents(last.contributed) === cents(account.contributedValue);
+    if (!matchesNow) {
+      if (last && last.date === today) {
+        // Today already has a point — update it in place rather than duplicating.
+        pts[pts.length - 1] = { date: today, fundValue: account.balance, contributed: account.contributedValue };
+      } else {
+        pts.push({ date: today, fundValue: account.balance, contributed: account.contributedValue });
+      }
+    }
+    return pts;
+  }, [history, account.balance, account.contributedValue]);
+
+  // Whether the series spans more than one calendar day — a single day isn't
+  // growth-over-time, so the chart is only meaningful with ≥2 distinct dates.
+  const multiDay = useMemo(() => new Set(points.map(p => p.date)).size > 1, [points]);
+
+  // Newest-first log with change-since-previous.
+  const log = useMemo(() => {
+    return points
+      .map((p, i) => ({ ...p, delta: i > 0 ? p.fundValue - points[i - 1].fundValue : null }))
+      .reverse();
+  }, [points]);
+
+  const pageCount = Math.max(1, Math.ceil(log.length / INV_PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageItems = log.slice(safePage * INV_PAGE_SIZE, safePage * INV_PAGE_SIZE + INV_PAGE_SIZE);
+
+  return (
+    <ModalPortal>
+    <div
+      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/50 dark:bg-black/60 backdrop-blur-sm animate-fade-in p-0 sm:p-4"
+      onClick={onClose}
+      role="dialog" aria-modal="true" aria-label={`${account.name} growth`}
+    >
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        className="bg-paper w-full sm:max-w-3xl sm:rounded-2xl rounded-t-2xl border border-rule shadow-paper-lift max-h-[88vh] flex flex-col animate-fade-up focus:outline-none overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header — spans the full width above the two columns */}
+        <div className="flex items-start justify-between gap-3 p-5 border-b border-rule">
+          <div className="min-w-0">
+            <p className="text-xs text-ink-muted mb-0.5 truncate">
+              {account.provider ? `${account.provider} · ` : ''}Investment · fund value
+            </p>
+            <h3 className="font-display text-lg text-ink tracking-tight truncate">{account.name}</h3>
+            <div className="flex items-baseline gap-3 mt-1 flex-wrap">
+              <p className="num text-2xl font-semibold text-ink">{formatCurrency(account.balance)}</p>
+              <p className={`text-[11px] inline-flex items-center gap-1 font-medium ${growth.up ? 'text-jade-600 dark:text-jade-400' : 'text-coral-600'}`}>
+                {growth.up ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
+                {formatGrowth(growth)} vs {formatCurrency(account.contributedValue)} in
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <button onClick={onEdit} className="p-2.5 rounded-md hover:bg-paper-soft text-ink-muted hover:text-ink transition-colors" aria-label="Edit card" title="Edit / update fund value">
+              <Pencil className="w-4 h-4" />
+            </button>
+            <button onClick={onClose} className="p-2.5 rounded-md hover:bg-paper-soft text-ink-muted hover:text-ink transition-colors" aria-label="Close">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Body — horizontal on sm+: chart on the left, history log on the right.
+            On mobile it stacks and the WHOLE body scrolls; on sm+ only the log
+            column scrolls (overflow-hidden here + overflow-auto on the log). */}
+        <div className="flex flex-col sm:flex-row min-h-0 flex-1 overflow-y-auto sm:overflow-hidden">
+          {/* LEFT: growth chart + a compact stat strip */}
+          <div className="sm:w-[46%] sm:shrink-0 p-5 sm:border-r border-rule flex flex-col gap-4">
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-ink-muted font-medium mb-2">Fund value over time</p>
+              {multiDay ? (
+                <div className="rounded-lg border border-rule bg-paper-soft/40 p-3">
+                  <Sparkline values={points.map(p => p.fundValue)} up={growth.up} className="w-full h-24 sm:h-28" />
+                  <div className="flex items-center justify-between mt-2 text-[10px] text-ink-muted font-mono">
+                    <span>{formatDateString(points[0].date)}</span>
+                    <span>{formatDateString(points[points.length - 1].date)}</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-rule bg-paper-soft/30 p-6 text-center">
+                  <LineChart className="w-6 h-6 mx-auto text-ink-whisper mb-2" />
+                  <p className="text-[11px] text-ink-muted">Update the fund value on different days to build a growth chart.</p>
+                </div>
+              )}
+            </div>
+            {/* Stat strip: contributed vs fund value */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-lg border border-rule bg-paper-soft/40 p-3">
+                <p className="text-[10px] uppercase tracking-wider text-ink-muted">Contributed</p>
+                <p className="num text-base font-semibold text-ink mt-0.5">{formatCurrency(account.contributedValue)}</p>
+              </div>
+              <div className="rounded-lg border border-rule bg-paper-soft/40 p-3">
+                <p className="text-[10px] uppercase tracking-wider text-ink-muted">Growth</p>
+                <p className={`num text-base font-semibold mt-0.5 ${growth.up ? 'text-jade-600 dark:text-jade-400' : 'text-coral-600'}`}>{formatGrowth(growth)}</p>
+              </div>
+            </div>
+            {/* Read-only months-paid summary for the current year (edit in the card). */}
+            {(() => {
+              const yr = new Date().getFullYear();
+              const paid = new Set(account.paidMonths[String(yr)] ?? []);
+              return (
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-[10px] uppercase tracking-wider text-ink-muted font-medium">Months paid · {yr}</p>
+                    <p className="text-[11px] text-ink-muted"><span className="font-semibold text-ink">{paid.size}</span>/12</p>
+                  </div>
+                  <div className="grid grid-cols-6 gap-1">
+                    {MONTH_LABELS.map((label, i) => {
+                      const isPaid = paid.has(i + 1);
+                      return (
+                        <span
+                          key={i}
+                          title={`${label}: ${isPaid ? 'paid' : 'unpaid'}`}
+                          className={`text-[9px] font-medium text-center py-1 rounded ${
+                            isPaid
+                              ? 'bg-jade-500 text-white dark:bg-jade-600'
+                              : 'bg-paper-soft/60 text-ink-muted border border-rule'
+                          }`}
+                        >
+                          {label[0]}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* RIGHT: dated history log + pager */}
+          <div className="flex-1 min-h-0 flex flex-col border-t sm:border-t-0 border-rule">
+            <p className="text-[10px] uppercase tracking-wider text-ink-muted font-medium px-5 pt-4 pb-1 sm:pt-5">History</p>
+            <div className="sm:overflow-y-auto px-3 pb-3 flex-1 sm:min-h-[160px]">
+              {loading ? (
+                <p className="text-sm text-ink-muted text-center py-8">Loading history…</p>
+              ) : (
+                <ul className="space-y-1">
+                  {pageItems.map((p, i) => {
+                    const g = computeGrowth(p.fundValue, p.contributed);
+                    return (
+                      <li key={`${p.date}-${i}`} className="flex items-center gap-3 px-2.5 py-2.5 rounded-lg hover:bg-paper-soft transition-colors">
+                        <span className={`w-8 h-8 rounded-md flex items-center justify-center shrink-0 ${g.up ? 'bg-jade-50 text-jade-600 dark:bg-jade-900/40 dark:text-jade-400' : 'bg-coral-50 text-coral-600 dark:bg-coral-900/40 dark:text-coral-400'}`}>
+                          {g.up ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm text-ink leading-tight">{formatDateString(p.date)}</p>
+                          <p className="text-[11px] text-ink-muted truncate">
+                            {p.delta === null ? 'First recorded' : `${p.delta >= 0 ? '+' : '−'}${formatCurrency(Math.abs(p.delta))} since previous`}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="num text-sm font-semibold text-ink">{formatCurrency(p.fundValue)}</p>
+                          <p className={`text-[10px] font-medium ${g.up ? 'text-jade-600 dark:text-jade-400' : 'text-coral-600'}`}>{formatGrowth(g)}</p>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+            {/* Pager */}
+            {pageCount > 1 && (
+              <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-rule">
+                <span className="text-[11px] text-ink-muted font-mono">{safePage + 1}/{pageCount}</span>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={safePage <= 0} className="p-2.5 rounded-md border border-rule hover:bg-paper-soft disabled:opacity-30 disabled:cursor-not-allowed transition-colors" aria-label="Previous page">
+                    <ChevronLeft className="w-4 h-4 text-ink" />
+                  </button>
+                  <button onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))} disabled={safePage >= pageCount - 1} className="p-2.5 rounded-md border border-rule hover:bg-paper-soft disabled:opacity-30 disabled:cursor-not-allowed transition-colors" aria-label="Next page">
+                    <ChevronRight className="w-4 h-4 text-ink" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+    </ModalPortal>
   );
 };
 
@@ -443,13 +1117,22 @@ interface CustomCardModalProps {
 const CustomCardModal: React.FC<CustomCardModalProps> = ({ account, onClose, onCreated, onUpdated, onDeleted }) => {
   const isEdit = account !== null;
   const [name, setName] = useState(account?.name ?? '');
+  // For an investment card, `balance` is the CURRENT FUND VALUE.
   const [balance, setBalance] = useState(account ? String(account.balance) : '');
   const [liquidity, setLiquidity] = useState<Liquidity>(account?.liquidity ?? 'liquid');
+  const [accountType, setAccountType] = useState<AccountType>(account?.accountType ?? 'savings');
+  const [contributed, setContributed] = useState(account ? String(account.contributedValue) : '');
+  const [provider, setProvider] = useState(account?.provider ?? '');
+  // Paid premium months per year (investment cards). Edited via the grid below.
+  const [paidMonths, setPaidMonths] = useState<PaidMonths>(account?.paidMonths ?? {});
+  // Which year the months grid is showing. Defaults to the current year.
+  const [gridYear, setGridYear] = useState<number>(() => new Date().getFullYear());
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(account?.backgroundUrl ?? null);
   const [status, setStatus] = useState<'idle' | 'saving' | 'deleting'>('idle');
   const [error, setError] = useState('');
   const [warning, setWarning] = useState('');
+  const isInvestment = accountType === 'investment';
   // The row once it exists — the incoming account, or one we just created. Once
   // set, re-saving updates it (so an image retry never creates a second row).
   const [persisted, setPersisted] = useState<CustomSavingsAccount | null>(account);
@@ -458,12 +1141,9 @@ const CustomCardModal: React.FC<CustomCardModalProps> = ({ account, onClose, onC
   // this ref flips synchronously and blocks the second call outright.
   const savingRef = useRef(false);
 
-  // Close on Escape (disabled mid-write so we don't abandon a save).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && status === 'idle') onClose(); };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose, status]);
+  // Escape close (disabled mid-write so we don't abandon a save), focus trap,
+  // scroll lock, focus restore — see useModal.
+  const panelRef = useModal<HTMLDivElement>(onClose, { escapeClosable: status === 'idle' });
 
   // Local object-URL preview for a newly chosen file; revoked on change/unmount.
   useEffect(() => {
@@ -480,28 +1160,62 @@ const CustomCardModal: React.FC<CustomCardModalProps> = ({ account, onClose, onC
 
   const save = async () => {
     if (savingRef.current) return; // re-entrancy guard: Enter can fire before disabled={busy} applies
-    const amount = parseFloat(balance);
+    // Round to cents up front so the in-memory value matches what the DB stores
+    // (numeric(12,2)). Otherwise a >2-decimal input leaves the persisted object
+    // out of sync with the rounded snapshot, spawning a phantom history point.
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const amountRaw = parseFloat(balance);
+    const contributedRaw = isInvestment ? parseFloat(contributed) : 0;
     if (!name.trim()) { setError('Give the card a name.'); return; }
-    if (!Number.isFinite(amount) || amount < 0) { setError('Enter a valid amount (0 or more).'); return; }
+    if (!Number.isFinite(amountRaw) || amountRaw < 0) {
+      setError(isInvestment ? 'Enter a valid fund value (0 or more).' : 'Enter a valid amount (0 or more).');
+      return;
+    }
+    if (isInvestment && (!Number.isFinite(contributedRaw) || contributedRaw < 0)) {
+      setError('Enter a valid contributed amount (0 or more).'); return;
+    }
+    const amount = round2(amountRaw);
+    const contributedNum = round2(contributedRaw);
 
     savingRef.current = true;
     setStatus('saving'); setError(''); setWarning('');
+
+    const provTrim = provider.trim() || null;
+    const contribVal = isInvestment ? contributedNum : 0;
+    // Did the fund value change vs the persisted row? Used to decide whether to
+    // append a history snapshot (only for investments, and only on real change).
+    const fundChanged = !persisted || persisted.balance !== amount || persisted.contributedValue !== contribVal;
 
     // Persist the account row first so the card always survives image trouble.
     // Update vs create keys off `persisted` (not the original prop) so an image
     // retry after a successful create never spawns a second row.
     let saved: CustomSavingsAccount;
     const firstTime = persisted === null;
+    const patch = {
+      name: name.trim(),
+      balance: amount,
+      liquidity,
+      accountType,
+      contributedValue: contribVal,
+      provider: provTrim,
+      // Only investment cards carry months; clear on a plain savings card.
+      paidMonths: isInvestment ? paidMonths : {},
+    };
     if (persisted) {
-      const res = await updateCustomSavingsAccount(persisted.id, { name: name.trim(), balance: amount, liquidity });
+      const res = await updateCustomSavingsAccount(persisted.id, patch);
       if (!res.ok) { savingRef.current = false; setStatus('idle'); setError(res.error); return; }
-      saved = { ...persisted, name: name.trim(), balance: amount, liquidity };
+      saved = { ...persisted, ...patch };
     } else {
-      const res = await createCustomSavingsAccount({ name: name.trim(), balance: amount, liquidity });
+      const res = await createCustomSavingsAccount(patch);
       if (!res.ok) { savingRef.current = false; setStatus('idle'); setError(res.error); return; }
       saved = res.value;
     }
     setPersisted(saved);
+
+    // Append a dated growth snapshot for investment cards (non-fatal).
+    if (isInvestment && fundChanged) {
+      await appendValueSnapshot(saved.id, amount, contribVal, getLocalDateString());
+    }
 
     // Optional background upload — non-fatal.
     let imageFailed = false;
@@ -547,22 +1261,27 @@ const CustomCardModal: React.FC<CustomCardModalProps> = ({ account, onClose, onC
   const busy = status !== 'idle';
 
   return (
+    <ModalPortal>
     <div
-      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-ink/40 backdrop-blur-sm animate-fade-in p-0 sm:p-4"
+      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/50 dark:bg-black/60 backdrop-blur-sm animate-fade-in p-0 sm:p-4"
       onClick={() => { if (!busy) onClose(); }}
       role="dialog"
       aria-modal="true"
       aria-label={isEdit ? 'Edit savings card' : 'Add savings card'}
     >
       <div
-        className="bg-paper w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl border border-rule shadow-paper-lift max-h-[90vh] overflow-y-auto flex flex-col animate-fade-up"
+        ref={panelRef}
+        tabIndex={-1}
+        className="bg-paper w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl border border-rule shadow-paper-lift max-h-[90vh] overflow-y-auto flex flex-col animate-fade-up focus:outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-start justify-between gap-3 p-5 border-b border-rule">
           <div>
-            <p className="text-xs text-ink-muted mb-0.5">Savings card</p>
-            <h3 className="font-display text-lg text-ink tracking-tight">{isEdit ? 'Edit card' : 'New savings card'}</h3>
+            <p className="text-xs text-ink-muted mb-0.5">{isInvestment ? 'Investment / insurance card' : 'Savings card'}</p>
+            <h3 className="font-display text-lg text-ink tracking-tight">
+              {isEdit ? 'Edit card' : isInvestment ? 'New investment card' : 'New savings card'}
+            </h3>
           </div>
           <button
             onClick={onClose}
@@ -575,20 +1294,63 @@ const CustomCardModal: React.FC<CustomCardModalProps> = ({ account, onClose, onC
         </div>
 
         <div className="p-5 space-y-4">
+          {/* Card type — plain savings vs a market-value investment/VUL. Switching
+              to investment defaults liquidity to non-liquid (you can override). */}
+          <div>
+            <span className="text-xs font-medium text-ink-soft">Card type</span>
+            <div className="mt-1 grid grid-cols-2 gap-2">
+              {([
+                { key: 'savings' as const, label: 'Savings', hint: 'A simple pot' },
+                { key: 'investment' as const, label: 'Investment / VUL', hint: 'Tracks market growth' },
+              ]).map((opt) => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => {
+                    setAccountType(opt.key);
+                    // Sensible default: investments are non-liquid assets.
+                    if (opt.key === 'investment' && liquidity === 'liquid') setLiquidity('nonliquid');
+                  }}
+                  className={`px-3 py-2 rounded-lg text-sm font-medium border transition-colors text-left ${
+                    accountType === opt.key
+                      ? 'bg-ink text-paper border-ink'
+                      : 'bg-paper-soft/60 text-ink-soft border-rule hover:border-ink/30'
+                  }`}
+                >
+                  <span className="block">{opt.label}</span>
+                  <span className={`block text-[10px] font-normal ${accountType === opt.key ? 'text-paper/70' : 'text-ink-muted'}`}>{opt.hint}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Name */}
           <label className="block">
             <span className="text-xs font-medium text-ink-soft">Name</span>
             <input
               type="text" maxLength={60} value={name} autoFocus
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. House fund"
+              placeholder={isInvestment ? 'e.g. Prulife VUL' : 'e.g. House fund'}
               className="mt-1 w-full bg-paper-soft/60 rounded-lg px-3 py-2.5 border border-rule outline-none text-ink text-sm focus:border-ink/30 transition-colors"
             />
           </label>
 
-          {/* Balance */}
+          {/* Provider — investment cards only */}
+          {isInvestment && (
+            <label className="block">
+              <span className="text-xs font-medium text-ink-soft">Provider <span className="text-ink-muted font-normal">(optional)</span></span>
+              <input
+                type="text" maxLength={60} value={provider}
+                onChange={(e) => setProvider(e.target.value)}
+                placeholder="e.g. Prulife"
+                className="mt-1 w-full bg-paper-soft/60 rounded-lg px-3 py-2.5 border border-rule outline-none text-ink text-sm focus:border-ink/30 transition-colors"
+              />
+            </label>
+          )}
+
+          {/* Balance / Fund value */}
           <label className="block">
-            <span className="text-xs font-medium text-ink-soft">Balance</span>
+            <span className="text-xs font-medium text-ink-soft">{isInvestment ? 'Current fund value' : 'Balance'}</span>
             <div className="mt-1 flex items-baseline gap-1.5 bg-paper-soft/60 rounded-lg px-3 py-2.5 border border-rule focus-within:border-ink/30 transition-colors">
               <span className="text-ink-muted font-mono text-lg">₱</span>
               <input
@@ -599,7 +1361,123 @@ const CustomCardModal: React.FC<CustomCardModalProps> = ({ account, onClose, onC
                 className="flex-1 bg-transparent border-0 outline-none num text-xl text-ink font-semibold placeholder:text-ink-whisper"
               />
             </div>
+            {isInvestment && (
+              <p className="text-[11px] text-ink-muted mt-1.5">What the fund is worth today. Updating this saves a dated snapshot for the growth chart.</p>
+            )}
           </label>
+
+          {/* Contributed + growth readout — investment cards only */}
+          {isInvestment && (
+            <label className="block">
+              <span className="text-xs font-medium text-ink-soft">Total contributed</span>
+              <div className="mt-1 flex items-baseline gap-1.5 bg-paper-soft/60 rounded-lg px-3 py-2.5 border border-rule focus-within:border-ink/30 transition-colors">
+                <span className="text-ink-muted font-mono text-lg">₱</span>
+                <input
+                  type="number" step="0.01" min="0" value={contributed}
+                  onChange={(e) => setContributed(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') save(); }}
+                  placeholder="0.00"
+                  className="flex-1 bg-transparent border-0 outline-none num text-xl text-ink font-semibold placeholder:text-ink-whisper"
+                />
+              </div>
+              {(() => {
+                const fv = parseFloat(balance), cv = parseFloat(contributed);
+                if (!Number.isFinite(fv) || !Number.isFinite(cv) || cv <= 0) {
+                  return <p className="text-[11px] text-ink-muted mt-1.5">What you've paid in so far. Growth = fund value − contributed.</p>;
+                }
+                const g = computeGrowth(fv, cv);
+                return (
+                  <p className={`text-[11px] mt-1.5 inline-flex items-center gap-1 font-medium ${g.up ? 'text-jade-600 dark:text-jade-400' : 'text-coral-600'}`}>
+                    {g.up ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
+                    {g.up ? 'Growth' : 'Down'} {formatGrowth(g)}
+                  </p>
+                );
+              })()}
+            </label>
+          )}
+
+          {/* Months paid — investment cards only. A Jan–Dec grid per year; tap a
+              month to toggle it paid. Stored as { year: [months] } on the card. */}
+          {isInvestment && (() => {
+            const yearKey = String(gridYear);
+            const paid = new Set(paidMonths[yearKey] ?? []);
+            const toggleMonth = (m: number) => {
+              setPaidMonths(prev => {
+                const cur = new Set(prev[yearKey] ?? []);
+                if (cur.has(m)) cur.delete(m); else cur.add(m);
+                const next = { ...prev };
+                const arr = Array.from(cur).sort((a, b) => a - b);
+                if (arr.length > 0) next[yearKey] = arr; else delete next[yearKey];
+                return next;
+              });
+            };
+            const allPaid = paid.size === 12;
+            return (
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs font-medium text-ink-soft">Months paid</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setGridYear(y => y - 1)}
+                      className="p-1.5 rounded-md hover:bg-paper-soft text-ink-muted hover:text-ink transition-colors"
+                      aria-label="Previous year"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="num text-sm font-medium text-ink tabular-nums w-12 text-center select-none">{gridYear}</span>
+                    <button
+                      type="button"
+                      onClick={() => setGridYear(y => y + 1)}
+                      className="p-1.5 rounded-md hover:bg-paper-soft text-ink-muted hover:text-ink transition-colors"
+                      aria-label="Next year"
+                    >
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {MONTH_LABELS.map((label, i) => {
+                    const m = i + 1;
+                    const isPaid = paid.has(m);
+                    return (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => toggleMonth(m)}
+                        aria-pressed={isPaid}
+                        className={`relative px-2 py-2 rounded-lg text-xs font-medium border transition-colors ${
+                          isPaid
+                            ? 'bg-jade-500 text-white border-jade-500 dark:bg-jade-600 dark:border-jade-600'
+                            : 'bg-paper-soft/60 text-ink-soft border-rule hover:border-ink/30'
+                        }`}
+                      >
+                        {isPaid && <Check className="w-3 h-3 absolute top-1 right-1" />}
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center justify-between mt-1.5">
+                  <p className="text-[11px] text-ink-muted">
+                    <span className="font-semibold text-ink">{paid.size}</span> of 12 paid · {gridYear}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setPaidMonths(prev => {
+                      const next = { ...prev };
+                      if (allPaid) delete next[yearKey];
+                      else next[yearKey] = [1,2,3,4,5,6,7,8,9,10,11,12];
+                      return next;
+                    })}
+                    className="text-[11px] font-medium text-ink-soft hover:text-ink transition-colors"
+                  >
+                    {allPaid ? 'Clear all' : 'Mark all'}
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Liquidity toggle */}
           <div>
@@ -621,7 +1499,9 @@ const CustomCardModal: React.FC<CustomCardModalProps> = ({ account, onClose, onC
               ))}
             </div>
             <p className="text-[11px] text-ink-muted mt-1.5 leading-relaxed">
-              Liquid = you can reach it now. Non-liquid = locked away (like Pag-IBIG MP2).
+              {isInvestment
+                ? 'Investments are usually non-liquid — kept out of expense funding, but you can still transfer money in.'
+                : 'Liquid = you can reach it now. Non-liquid = locked away (like Pag-IBIG MP2).'}
             </p>
           </div>
 
@@ -673,6 +1553,7 @@ const CustomCardModal: React.FC<CustomCardModalProps> = ({ account, onClose, onC
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 };
 
@@ -738,12 +1619,172 @@ const NetWorthSkeleton: React.FC = () => (
 );
 
 /**
+ * Move money between the user's own pots (bank-transfer-to-self). Mirrors the
+ * overlay shell of the other modals (backdrop + Escape close). Picks a `from`
+ * and a `to` pot, validates the amount against the source balance, and calls
+ * onTransfer. Net worth is unchanged — only the split between pots moves.
+ */
+interface TransferModalProps {
+  /** All pots — valid transfer DESTINATIONS (incl. investment/VUL cards). */
+  pots: FundingSource[];
+  /** Pots valid as a SOURCE — excludes investment cards (transfer-in only). */
+  fromPots: FundingSource[];
+  onClose: () => void;
+  onTransfer: NonNullable<NetWorthTabProps['onTransfer']>;
+}
+
+const TransferModal: React.FC<TransferModalProps> = ({ pots, fromPots, onClose, onTransfer }) => {
+  const [fromKey, setFromKey] = useState(fromPots[0]?.key ?? '');
+  // Default the destination to the first pot that isn't the chosen source.
+  const [toKey, setToKey] = useState(pots.find(p => p.key !== (fromPots[0]?.key ?? ''))?.key ?? '');
+  const [amount, setAmount] = useState('');
+  const [note, setNote] = useState('');
+  const [date, setDate] = useState(getLocalDateString());
+  const [status, setStatus] = useState<'idle' | 'saving' | 'done'>('idle');
+  const [error, setError] = useState('');
+  const savingRef = useRef(false);
+
+  // Escape close (disabled mid-save), focus trap, scroll lock, focus restore.
+  const panelRef = useModal<HTMLDivElement>(onClose, { escapeClosable: status !== 'saving' });
+
+  const from = fromPots.find(p => p.key === fromKey) ?? null;
+  const to = pots.find(p => p.key === toKey) ?? null;
+  const amt = parseFloat(amount);
+  const samePot = fromKey !== '' && fromKey === toKey;
+  const overspend = from != null && Number.isFinite(amt) && amt > from.balance;
+  const invalid = !from || !to || samePot || !Number.isFinite(amt) || amt <= 0 || overspend;
+
+  const submit = async () => {
+    if (savingRef.current || invalid || !from || !to) return;
+    savingRef.current = true;
+    setStatus('saving'); setError('');
+    const res = await onTransfer(from.source, to.source, amt, date, note.trim() || undefined);
+    if (!res.ok) { savingRef.current = false; setStatus('idle'); setError(res.error ?? 'Transfer failed.'); return; }
+    setStatus('done');
+    setTimeout(onClose, 700);
+  };
+
+  const inputClass = 'w-full bg-paper-soft/60 rounded-lg px-3 py-2.5 border border-rule outline-none text-ink text-sm focus:border-ink/30 transition-colors';
+
+  // Only a backdrop click that also STARTED on the backdrop closes the modal.
+  // Without this, drag-selecting text inside an input and releasing over the
+  // backdrop registers as a click and dismisses the dialog. We record where the
+  // press began and require both ends to be the backdrop itself.
+  const backdropMouseDown = useRef(false);
+
+  return (
+    <ModalPortal>
+    <div
+      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/50 dark:bg-black/60 backdrop-blur-sm animate-fade-in p-0 sm:p-4"
+      onMouseDown={(e) => { backdropMouseDown.current = e.target === e.currentTarget; }}
+      onClick={(e) => {
+        if (status === 'saving') return;
+        if (e.target === e.currentTarget && backdropMouseDown.current) onClose();
+        backdropMouseDown.current = false;
+      }}
+      role="dialog" aria-modal="true" aria-label="Move money between accounts"
+    >
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        className="bg-paper w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl border border-rule shadow-paper-lift max-h-[90vh] overflow-y-auto flex flex-col animate-fade-up focus:outline-none"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 p-5 border-b border-rule">
+          <div>
+            <p className="text-xs text-ink-muted mb-0.5">Bank transfer to self</p>
+            <h3 className="font-display text-lg text-ink tracking-tight">Move money</h3>
+          </div>
+          <button onClick={onClose} disabled={status === 'saving'} className="p-2.5 rounded-md hover:bg-paper-soft text-ink-muted hover:text-ink transition-colors shrink-0 disabled:opacity-40" aria-label="Close">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {/* From → To */}
+          <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-2">
+            <label className="block min-w-0">
+              <span className="text-xs font-medium text-ink-soft">From</span>
+              <select value={fromKey} onChange={(e) => setFromKey(e.target.value)} className={`${inputClass} mt-1`}>
+                {fromPots.map(p => <option key={p.key} value={p.key}>{p.source.label}</option>)}
+              </select>
+            </label>
+            <span className="pb-2.5 text-ink-muted"><ArrowRight className="w-4 h-4" /></span>
+            <label className="block min-w-0">
+              <span className="text-xs font-medium text-ink-soft">To</span>
+              <select value={toKey} onChange={(e) => setToKey(e.target.value)} className={`${inputClass} mt-1`}>
+                {pots.map(p => <option key={p.key} value={p.key}>{p.source.label}</option>)}
+              </select>
+            </label>
+          </div>
+          {from && (
+            <p className="text-[11px] text-ink-muted -mt-1.5">
+              {from.source.label} has {formatCurrency(from.balance)} available.
+            </p>
+          )}
+
+          {/* Amount */}
+          <label className="block">
+            <span className="text-xs font-medium text-ink-soft">Amount</span>
+            <div className={`mt-1 flex items-baseline gap-1.5 bg-paper-soft/60 rounded-lg px-3 py-2.5 border transition-colors ${overspend ? 'border-coral-400' : 'border-rule focus-within:border-ink/30'}`}>
+              <span className="text-ink-muted font-mono text-lg">₱</span>
+              <input
+                type="number" step="0.01" min="0" value={amount} autoFocus
+                onChange={(e) => setAmount(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+                placeholder="0.00"
+                className="flex-1 bg-transparent border-0 outline-none num text-xl text-ink font-semibold placeholder:text-ink-whisper"
+              />
+            </div>
+          </label>
+
+          {/* Date + note */}
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-xs font-medium text-ink-soft">Date</span>
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={`${inputClass} mt-1`} />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-ink-soft">Note <span className="text-ink-muted font-normal">(optional)</span></span>
+              <input type="text" maxLength={80} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. top up savings" className={`${inputClass} mt-1`} />
+            </label>
+          </div>
+
+          {samePot && <p className="text-xs text-coral-600">Pick two different accounts.</p>}
+          {overspend && !samePot && <p className="text-xs text-coral-600">Only {formatCurrency(from!.balance)} available in {from!.source.label}.</p>}
+          {error && <p className="text-xs text-coral-600">{error}</p>}
+        </div>
+
+        <div className="flex items-center gap-2 p-5 border-t border-rule">
+          <button
+            onClick={submit}
+            disabled={invalid || status !== 'idle'}
+            className="inline-flex items-center gap-1.5 bg-ink hover:bg-ink-soft text-paper px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {status === 'saving' ? <Loader2 className="w-4 h-4 animate-spin" /> : status === 'done' ? <Check className="w-4 h-4" /> : <ArrowRightLeft className="w-4 h-4" />}
+            <span>{status === 'done' ? 'Moved' : 'Move money'}</span>
+          </button>
+          <button onClick={onClose} disabled={status === 'saving'} className="inline-flex items-center gap-1.5 text-ink-soft hover:text-ink border border-rule hover:bg-paper-soft px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-60">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+    </ModalPortal>
+  );
+};
+
+/**
  * Net Worth = money on your wallet (cash on hand) + everything you've set aside.
  * The savings buckets (Emergency Fund, General Savings, Pag-IBIG MP2) are kept
  * separate but all count toward the total — so money you saved stops looking
  * like a spent expense and shows up as part of what you actually own.
  */
-export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
+export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data, active = true, pots = [], onTransfer }) => {
+  const [transferOpen, setTransferOpen] = useState(false);
+  // Bumped after an in-tab transfer so this tab re-pulls its own stored balances
+  // (wallet/debit/custom); the computed buckets refresh via `data` props already.
+  const [refreshTick, setRefreshTick] = useState(0);
   const [wallet, setWallet] = useState(0);
   const [debit, setDebit] = useState(0);
   const [balancesLoaded, setBalancesLoaded] = useState(false);
@@ -754,8 +1795,14 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
   const [customLoaded, setCustomLoaded] = useState(false);
   // Create/edit modal: { account } where account=null means "create new".
   const [customEditor, setCustomEditor] = useState<{ account: CustomSavingsAccount | null } | null>(null);
+  // Investment card whose growth-detail modal is open (null = none).
+  const [openInvestment, setOpenInvestment] = useState<CustomSavingsAccount | null>(null);
 
+  // Re-fetch whenever the tab becomes active. The panel stays mounted while
+  // hidden, so an expense logged elsewhere (which deducts from wallet/debit/a
+  // custom card) would otherwise leave these stored balances stale here.
   useEffect(() => {
+    if (!active) return;
     let cancelled = false;
     loadWalletBalances().then((res) => {
       if (cancelled) return;
@@ -768,7 +1815,7 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
       setCustomLoaded(true);
     });
     return () => { cancelled = true; };
-  }, []);
+  }, [active, refreshTick]);
 
   // The whole tab depends on both the wallet balances and the custom accounts;
   // show the skeleton until both first-loads have settled.
@@ -862,6 +1909,13 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
   // Shared hover/focus styling for every clickable savings card (buckets + customs).
   const cardBase = 'cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:shadow-paper-lift hover:border-ink/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/20';
 
+  // Pots valid as a transfer SOURCE: everything except investment/VUL cards
+  // (those are transfer-in only). Investment card keys are `custom:<id>`.
+  const investmentKeys = new Set(
+    customAccounts.filter(a => a.accountType === 'investment').map(a => `custom:${a.id}`),
+  );
+  const sourcePots = pots.filter(p => !investmentKeys.has(p.key));
+
   if (loading) return <NetWorthSkeleton />;
 
   return (
@@ -884,11 +1938,18 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
         <div className="pointer-events-none absolute -top-16 -right-10 w-64 h-64 rounded-full bg-white/40 blur-3xl dark:bg-white/10" />
         <div className="pointer-events-none absolute -bottom-24 -left-10 w-72 h-72 rounded-full bg-ink/[0.06] blur-3xl dark:bg-white/[0.05]" />
 
-        <div className="relative flex items-center justify-between mb-5">
+        <div className="relative flex items-center justify-between gap-3 mb-5">
           <p className="text-xs uppercase tracking-[0.2em] text-ink-soft/70 dark:text-white/50">Your net worth</p>
-          <span className="inline-flex items-center gap-1.5 text-ink-soft/70 dark:text-white/50 text-xs font-mono">
-            <Wallet className="w-3.5 h-3.5" /> wallet + savings
-          </span>
+          {onTransfer && pots.length >= 2 && (
+            <button
+              onClick={() => setTransferOpen(true)}
+              className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors shrink-0
+                         border-ink/15 text-ink-soft hover:text-ink hover:bg-ink/5
+                         dark:border-white/20 dark:text-white/70 dark:hover:text-white dark:hover:bg-white/10"
+            >
+              <ArrowRightLeft className="w-3.5 h-3.5" /> Move money
+            </button>
+          )}
         </div>
         <p className="relative num font-semibold text-4xl sm:text-5xl tracking-tight bg-clip-text text-transparent animate-count-pop
                       bg-gradient-to-b from-ink to-ink/70 dark:from-white dark:to-white/70">
@@ -1073,7 +2134,13 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
               the same corner-mark placeholder treatment as the Pag-IBIG MP2 card. */}
           {customAccounts.map((a) => {
             const pct = savingsTotal > 0 ? `${Math.round((a.balance / savingsTotal) * 100)}% of savings` : 'Counted as savings';
-            const open = () => setCustomEditor({ account: a });
+            const isInvestment = a.accountType === 'investment';
+            // Investments open a growth-detail modal; plain cards open the editor.
+            const open = () => isInvestment ? setOpenInvestment(a) : setCustomEditor({ account: a });
+            const growth = isInvestment ? computeGrowth(a.balance, a.contributedValue) : null;
+            // Months paid this calendar year, for the at-a-glance chip.
+            const thisYear = new Date().getFullYear();
+            const paidThisYear = isInvestment ? (a.paidMonths[String(thisYear)]?.length ?? 0) : 0;
             return (
               <div
                 key={a.id}
@@ -1081,13 +2148,13 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
                 tabIndex={0}
                 onClick={open}
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } }}
-                aria-label={`${a.name}: ${formatCurrency(a.balance)}. Edit card.`}
+                aria-label={`${a.name}: ${formatCurrency(a.balance)}. ${isInvestment ? 'View growth.' : 'Edit card.'}`}
                 className={`relative overflow-hidden bg-paper rounded-xl border border-rule p-5 min-h-[132px] ${cardBase}`}
               >
                 {/* On mobile an uploaded image fills the card as a low-opacity
                     background; from sm up it returns to a solid upper-right badge
-                    (same slot as the MP2 logo). No image → PiggyBank placeholder
-                    badge in that slot at all sizes. */}
+                    (same slot as the MP2 logo). No image → placeholder badge
+                    (line chart for investments, PiggyBank for savings). */}
                 {a.backgroundUrl && (
                   <img
                     src={a.backgroundUrl}
@@ -1102,8 +2169,10 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
                     className="hidden sm:block absolute top-5 right-5 h-12 w-12 shrink-0 rounded-lg object-cover"
                   />
                 ) : (
-                  <span className="absolute top-5 right-5 h-12 w-12 shrink-0 rounded-lg bg-paper-soft text-ink-soft flex items-center justify-center">
-                    <PiggyBank className="w-6 h-6" />
+                  <span className={`absolute top-5 right-5 h-12 w-12 shrink-0 rounded-lg flex items-center justify-center ${
+                    isInvestment ? 'bg-jade-50 text-jade-600 dark:bg-jade-900/40 dark:text-jade-400' : 'bg-paper-soft text-ink-soft'
+                  }`}>
+                    {isInvestment ? <LineChart className="w-6 h-6" /> : <PiggyBank className="w-6 h-6" />}
                   </span>
                 )}
                 <div className="relative">
@@ -1112,28 +2181,49 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
                     <LiquidityBadge liquidity={a.liquidity} />
                   </div>
                   <p className="num text-2xl font-semibold tracking-tight text-ink">{formatCurrency(a.balance)}</p>
-                  <p className="text-[11px] text-ink-muted mt-1.5 flex items-center justify-between">
-                    <span>{pct}</span>
-                    <span className="text-ink-soft/70 font-medium">Edit →</span>
-                  </p>
+                  {isInvestment && growth ? (
+                    <>
+                      <p className={`text-[11px] mt-1.5 inline-flex items-center gap-1 font-medium ${growth.up ? 'text-jade-600 dark:text-jade-400' : 'text-coral-600'}`}>
+                        {growth.up ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
+                        {formatGrowth(growth)}
+                      </p>
+                      <p className="text-[11px] text-ink-muted mt-1 flex items-center justify-between gap-2">
+                        <span className="truncate min-w-0 inline-flex items-center gap-1.5">
+                          <span className="truncate">{a.provider ? a.provider : `Contributed ${formatCurrency(a.contributedValue)}`}</span>
+                          {paidThisYear > 0 && (
+                            <span className="shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-jade-50 text-jade-600 dark:bg-jade-900/40 dark:text-jade-400 text-[9px] font-semibold tabular-nums">
+                              {paidThisYear}/12 mo
+                            </span>
+                          )}
+                        </span>
+                        <span className="text-ink-soft/70 font-medium shrink-0">Details →</span>
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-[11px] text-ink-muted mt-1.5 flex items-center justify-between">
+                      <span>{pct}</span>
+                      <span className="text-ink-soft/70 font-medium">Edit →</span>
+                    </p>
+                  )}
                 </div>
               </div>
             );
           })}
 
-          {/* Add a new custom savings card */}
+          {/* Add a new custom savings / investment card */}
           <button
             onClick={() => setCustomEditor({ account: null })}
             className="rounded-xl border border-dashed border-rule p-5 min-h-[132px] flex flex-col items-center justify-center gap-2 text-ink-muted hover:border-ink/30 hover:text-ink hover:bg-paper-soft/40 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/20"
           >
             <Plus className="w-5 h-5" />
-            <span className="text-xs font-medium">Add savings card</span>
+            <span className="text-xs font-medium">Add savings / investment</span>
           </button>
         </div>
         <p className="text-xs text-ink-muted mt-3 leading-relaxed">
           Emergency Fund and General Savings include both what you set aside from paychecks and any you logged as expenses.
-          Pag-IBIG MP2 counts the contributions you tagged as MP2. All three are savings — money you own, not money spent.
-          Tap any card to see how much and when you set it aside — or add your own savings card with the tile above.
+          Pag-IBIG MP2 counts the contributions you tagged as MP2. All are savings — money you own, not money spent.
+          Add an <span className="font-medium text-ink-soft">Investment / VUL</span> card (e.g. Prulife) to track a fund value that changes with the market —
+          reopen it any time to see growth vs what you contributed over time.
         </p>
       </div>
 
@@ -1143,6 +2233,8 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
           title={openBucket.title}
           data={data}
           onClose={() => setOpenBucket(null)}
+          // MP2 gets the Projection tab, seeded with its current balance.
+          mp2Balance={openBucket.bucket === 'pagibigMP2' ? savings.pagibigMP2 : undefined}
         />
       )}
 
@@ -1153,6 +2245,29 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data }) => {
           onCreated={handleCustomCreated}
           onUpdated={handleCustomUpdated}
           onDeleted={handleCustomDeleted}
+        />
+      )}
+
+      {openInvestment && (
+        <InvestmentDetailModal
+          account={openInvestment}
+          onClose={() => setOpenInvestment(null)}
+          onEdit={() => { const a = openInvestment; setOpenInvestment(null); setCustomEditor({ account: a }); }}
+        />
+      )}
+
+      {transferOpen && onTransfer && (
+        <TransferModal
+          pots={pots}
+          fromPots={sourcePots}
+          onClose={() => setTransferOpen(false)}
+          onTransfer={async (from, to, amount, date, note) => {
+            const res = await onTransfer(from, to, amount, date, note);
+            // On success, re-pull this tab's own stored balances so the cards
+            // reflect the move without waiting for a tab switch.
+            if (res.ok) setRefreshTick(t => t + 1);
+            return res;
+          }}
         />
       )}
     </div>

@@ -28,6 +28,7 @@ import {
   Download,
   MoreVertical,
   Shield,
+  Receipt,
 } from 'lucide-react';
 import {
   getUserStatistics,
@@ -38,13 +39,15 @@ import {
   reactivateUserAccount,
   deleteUserAccount,
   loadUserPortfolio,
+  loadUserFinancialData,
   getSentNotificationsWithReadStatus,
   UserWithDetails,
   UserStats,
   UserNotification,
 } from '../lib/adminUtils';
-import { Portfolio } from '../types';
+import { Portfolio, FinancialData } from '../types';
 import { Briefcase, Target, CheckCircle2, Clock as ClockIcon } from 'lucide-react';
+import { ModalShell } from './ModalShell';
 
 type SortField = 'email' | 'created_at' | 'total_income' | 'total_expenses' | 'last_sign_in_at';
 type SortDirection = 'asc' | 'desc';
@@ -98,6 +101,9 @@ export const AdminDashboard: React.FC = () => {
   const [openMenuUserId, setOpenMenuUserId] = useState<string | null>(null);
   const [userPortfolio, setUserPortfolio] = useState<Portfolio | null>(null);
   const [portfolioLoading, setPortfolioLoading] = useState(false);
+  const [userFinData, setUserFinData] = useState<FinancialData | null>(null);
+  const [finDataLoading, setFinDataLoading] = useState(false);
+  const [entriesTab, setEntriesTab] = useState<'income' | 'expenses' | 'bills'>('income');
   const [showSentMessagesModal, setShowSentMessagesModal] = useState(false);
   const [sentMessages, setSentMessages] = useState<any[]>([]);
   const [sentMessagesLoading, setSentMessagesLoading] = useState(false);
@@ -111,11 +117,14 @@ export const AdminDashboard: React.FC = () => {
   }, [users, searchTerm, statusFilter, sortField, sortDirection]);
 
   useEffect(() => {
-    // Load portfolio when user details modal opens
+    // Load portfolio + table entries when user details modal opens
     if (actionModal.type === 'details' && actionModal.user) {
       loadPortfolio(actionModal.user.id);
+      loadFinData(actionModal.user.id);
+      setEntriesTab('income');
     } else {
       setUserPortfolio(null);
+      setUserFinData(null);
     }
   }, [actionModal]);
 
@@ -124,6 +133,13 @@ export const AdminDashboard: React.FC = () => {
     const portfolio = await loadUserPortfolio(userId);
     setUserPortfolio(portfolio);
     setPortfolioLoading(false);
+  };
+
+  const loadFinData = async (userId: string) => {
+    setFinDataLoading(true);
+    const data = await loadUserFinancialData(userId);
+    setUserFinData(data);
+    setFinDataLoading(false);
   };
 
   const loadSentMessages = async () => {
@@ -517,7 +533,7 @@ export const AdminDashboard: React.FC = () => {
 
       {/* Users Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+        <div className="px-4 sm:px-6 py-4 border-b border-slate-200 flex items-center justify-between">
           <div>
             <h3 className="text-lg font-bold text-slate-900">Users List</h3>
             <p className="text-sm text-slate-600 mt-1">
@@ -536,70 +552,76 @@ export const AdminDashboard: React.FC = () => {
           {filteredUsers.map((user) => {
             const netAmount = user.total_income - user.total_expenses;
             return (
-              <div key={user.id} className="p-4 hover:bg-slate-50 transition-colors">
-                {/* Card Header */}
-                <div className="flex items-start gap-3 mb-3">
+              <div key={user.id} className="p-4 space-y-3">
+                {/* Identity */}
+                <div className="flex items-center gap-3">
                   <input
                     type="checkbox"
                     checked={selectedUsers.has(user.id)}
                     onChange={() => handleSelectUser(user.id)}
-                    className="w-4 h-4 mt-1 rounded border-slate-300 text-red-600 focus:ring-red-500"
+                    className="w-4 h-4 shrink-0 rounded border-slate-300 text-red-600 focus:ring-red-500"
                   />
                   <UserAvatar user={user} />
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-slate-900 truncate">{user.full_name || 'Unnamed User'}</p>
-                    <p className="text-sm text-slate-500 truncate">{user.email}</p>
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold mt-1.5 ${
-                      user.status === 'active' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' :
-                      user.status === 'suspended' ? 'bg-amber-100 text-amber-700 border border-amber-200' :
-                      'bg-red-100 text-red-700 border border-red-200'
-                    }`}>
-                      {user.status === 'active' && <UserCheck className="w-3 h-3" />}
-                      {user.status === 'suspended' && <UserMinus className="w-3 h-3" />}
-                      {user.status === 'deleted' && <UserX className="w-3 h-3" />}
-                      {user.status.charAt(0).toUpperCase() + user.status.slice(1)}
+                    <p className="text-xs text-slate-500 truncate">{user.email}</p>
+                  </div>
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold shrink-0 ${
+                    user.status === 'active' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' :
+                    user.status === 'suspended' ? 'bg-amber-100 text-amber-700 border border-amber-200' :
+                    'bg-red-100 text-red-700 border border-red-200'
+                  }`}>
+                    {user.status === 'active' && <UserCheck className="w-3 h-3" />}
+                    {user.status === 'suspended' && <UserMinus className="w-3 h-3" />}
+                    {user.status === 'deleted' && <UserX className="w-3 h-3" />}
+                    {user.status.charAt(0).toUpperCase() + user.status.slice(1)}
+                  </span>
+                </div>
+
+                {/* Financial summary — stacked rows so amounts never overflow */}
+                <div className="bg-slate-50 rounded-lg border border-slate-200 divide-y divide-slate-200/70">
+                  <div className="flex items-center justify-between px-3 py-1.5">
+                    <span className="flex items-center gap-1.5 text-xs text-slate-500">
+                      <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
+                      Income
+                    </span>
+                    <span className="text-sm font-semibold text-emerald-600 tabular-nums">{formatCurrency(user.total_income)}</span>
+                  </div>
+                  <div className="flex items-center justify-between px-3 py-1.5">
+                    <span className="flex items-center gap-1.5 text-xs text-slate-500">
+                      <TrendingDown className="w-3.5 h-3.5 text-red-500" />
+                      Expenses
+                    </span>
+                    <span className="text-sm font-semibold text-red-600 tabular-nums">{formatCurrency(user.total_expenses)}</span>
+                  </div>
+                  <div className="flex items-center justify-between px-3 py-1.5">
+                    <span className="text-xs font-medium text-slate-600">Net</span>
+                    <span className={`text-sm font-bold tabular-nums ${netAmount >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                      {formatCurrency(netAmount)}
                     </span>
                   </div>
                 </div>
 
-                {/* Financial Stats */}
-                <div className="grid grid-cols-3 gap-2 mb-3 pl-11">
-                  <div className="bg-emerald-50 rounded-lg p-2 border border-emerald-200">
-                    <div className="text-xs text-emerald-600 font-medium mb-0.5">Income</div>
-                    <div className="text-sm font-bold text-emerald-700">{formatCurrency(user.total_income)}</div>
-                  </div>
-                  <div className="bg-red-50 rounded-lg p-2 border border-red-200">
-                    <div className="text-xs text-red-600 font-medium mb-0.5">Expenses</div>
-                    <div className="text-sm font-bold text-red-700">{formatCurrency(user.total_expenses)}</div>
-                  </div>
-                  <div className={`rounded-lg p-2 border ${netAmount >= 0 ? 'bg-slate-50 border-slate-200' : 'bg-red-50 border-red-200'}`}>
-                    <div className="text-xs text-slate-600 font-medium mb-0.5">Net</div>
-                    <div className={`text-sm font-bold ${netAmount >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                      {formatCurrency(netAmount)}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Additional Info */}
-                <div className="flex items-center gap-4 text-xs text-slate-500 mb-3 pl-11">
-                  <div className="flex items-center gap-1">
+                {/* Meta */}
+                <div className="flex items-center gap-4 text-xs text-slate-500">
+                  <span className="flex items-center gap-1">
                     <Calendar className="w-3 h-3" />
-                    {new Date(user.created_at).toLocaleDateString()}
-                  </div>
-                  <div className="flex items-center gap-1">
+                    Joined {new Date(user.created_at).toLocaleDateString()}
+                  </span>
+                  <span className="flex items-center gap-1">
                     <Clock className="w-3 h-3" />
-                    {user.last_sign_in_at 
+                    {user.last_sign_in_at
                       ? new Date(user.last_sign_in_at).toLocaleDateString()
                       : 'Never'
                     }
-                  </div>
+                  </span>
                 </div>
 
                 {/* Action Buttons */}
-                <div className="flex items-center gap-2 pl-11">
+                <div className="flex items-center gap-2">
                   <button
                     onClick={() => setActionModal({ type: 'details', user })}
-                    className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors text-sm font-medium"
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors text-sm font-medium"
                   >
                     <Eye className="w-4 h-4" />
                     View
@@ -609,7 +631,7 @@ export const AdminDashboard: React.FC = () => {
                       setActionModal({ type: 'message', user });
                       setShowMessageModal(true);
                     }}
-                    className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors text-sm font-medium"
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors text-sm font-medium"
                   >
                     <Mail className="w-4 h-4" />
                     Message
@@ -858,8 +880,16 @@ export const AdminDashboard: React.FC = () => {
 
       {/* Message Modal */}
       {showMessageModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-2xl w-full p-6 animate-in fade-in zoom-in-95 duration-200">
+        <ModalShell
+          onClose={() => {
+            setShowMessageModal(false);
+            setActionModal({ type: null });
+            setMessageTitle('');
+            setMessageBody('');
+          }}
+          label={actionModal.user ? `Send message to ${actionModal.user.email}` : 'Send message to selected users'}
+          panelClassName="bg-white rounded-xl max-w-2xl w-full p-6 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto"
+        >
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xl font-bold text-slate-900">
                 {actionModal.user ? `Send Message to ${actionModal.user.email}` : 'Send Message to Selected Users'}
@@ -871,12 +901,12 @@ export const AdminDashboard: React.FC = () => {
                   setMessageTitle('');
                   setMessageBody('');
                 }}
-                className="p-1 hover:bg-slate-100 rounded-lg transition-colors"
+                className="p-1 hover:bg-slate-100 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
               >
                 <X className="w-5 h-5 text-slate-500" />
               </button>
             </div>
-            
+
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Message Type</label>
@@ -960,14 +990,15 @@ export const AdminDashboard: React.FC = () => {
                 </button>
               </div>
             </div>
-          </div>
-        </div>
+        </ModalShell>
       )}
 
       {/* Suspend User Modal */}
       {actionModal.type === 'suspend' && actionModal.user && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-lg w-full p-6 animate-in fade-in zoom-in-95 duration-200">
+        <ModalShell
+          onClose={() => { setActionModal({ type: null }); setActionReason(''); }}
+          label={`Suspend user account — ${actionModal.user.email}`}
+        >
             <div className="flex items-center gap-3 mb-4">
               <div className="p-3 bg-amber-100 rounded-full">
                 <Ban className="w-6 h-6 text-amber-600" />
@@ -1025,14 +1056,15 @@ export const AdminDashboard: React.FC = () => {
                 </button>
               </div>
             </div>
-          </div>
-        </div>
+        </ModalShell>
       )}
 
       {/* Reactivate User Modal */}
       {actionModal.type === 'reactivate' && actionModal.user && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-lg w-full p-6 animate-in fade-in zoom-in-95 duration-200">
+        <ModalShell
+          onClose={() => setActionModal({ type: null })}
+          label={`Reactivate user account — ${actionModal.user.email}`}
+        >
             <div className="flex items-center gap-3 mb-4">
               <div className="p-3 bg-emerald-100 rounded-full">
                 <RotateCcw className="w-6 h-6 text-emerald-600" />
@@ -1076,14 +1108,15 @@ export const AdminDashboard: React.FC = () => {
                 </button>
               </div>
             </div>
-          </div>
-        </div>
+        </ModalShell>
       )}
 
       {/* Delete User Modal */}
       {actionModal.type === 'delete' && actionModal.user && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-lg w-full p-6 animate-in fade-in zoom-in-95 duration-200">
+        <ModalShell
+          onClose={() => { setActionModal({ type: null }); setActionReason(''); }}
+          label={`Delete user account — ${actionModal.user.email}`}
+        >
             <div className="flex items-center gap-3 mb-4">
               <div className="p-3 bg-red-100 rounded-full">
                 <Trash2 className="w-6 h-6 text-red-600" />
@@ -1142,20 +1175,22 @@ export const AdminDashboard: React.FC = () => {
                 </button>
               </div>
             </div>
-          </div>
-        </div>
+        </ModalShell>
       )}
 
       {/* User Details Modal */}
       {actionModal.type === 'details' && actionModal.user && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-3xl w-full p-6 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-start justify-between mb-6">
-              <div className="flex items-center gap-4">
+        <ModalShell
+          onClose={() => setActionModal({ type: null })}
+          label={`User details — ${actionModal.user.email}`}
+          panelClassName="bg-white rounded-xl max-w-3xl w-full p-4 sm:p-6 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto"
+        >
+            <div className="flex items-start justify-between gap-3 mb-6">
+              <div className="flex items-center gap-3 sm:gap-4 min-w-0">
                 <UserAvatar user={actionModal.user} size="lg" />
-                <div>
-                  <h3 className="text-2xl font-bold text-slate-900">{actionModal.user.full_name || 'Unnamed User'}</h3>
-                  <p className="text-slate-600">{actionModal.user.email}</p>
+                <div className="min-w-0">
+                  <h3 className="text-xl sm:text-2xl font-bold text-slate-900 truncate">{actionModal.user.full_name || 'Unnamed User'}</h3>
+                  <p className="text-sm sm:text-base text-slate-600 truncate">{actionModal.user.email}</p>
                   <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold mt-2 ${
                     actionModal.user.status === 'active' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' :
                     actionModal.user.status === 'suspended' ? 'bg-amber-100 text-amber-700 border border-amber-200' :
@@ -1170,7 +1205,7 @@ export const AdminDashboard: React.FC = () => {
               </div>
               <button
                 onClick={() => setActionModal({ type: null })}
-                className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                className="p-2 hover:bg-slate-100 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
               >
                 <X className="w-5 h-5 text-slate-500" />
               </button>
@@ -1229,7 +1264,7 @@ export const AdminDashboard: React.FC = () => {
               </div>
             </div>
 
-            <div className="bg-ink rounded-lg p-5 text-paper mb-6">
+            <div className="bg-slate-900 rounded-lg p-5 text-white mb-6">
               <div className="flex items-center gap-2 mb-1">
                 <DollarSign className="w-4 h-4 opacity-70" />
                 <span className="text-xs font-medium opacity-70">Net amount</span>
@@ -1241,12 +1276,12 @@ export const AdminDashboard: React.FC = () => {
               </p>
             </div>
 
-            <div className="bg-paper-soft/70 rounded-lg p-4 border border-rule">
+            <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
               <div className="flex items-center gap-2 mb-1">
-                <Bell className="w-4 h-4 text-ink-soft" />
-                <span className="text-xs font-medium text-ink-soft">Notifications</span>
+                <Bell className="w-4 h-4 text-slate-500" />
+                <span className="text-xs font-medium text-slate-500">Notifications</span>
               </div>
-              <p className="text-base font-medium text-ink">
+              <p className="text-base font-medium text-slate-900">
                 {actionModal.user.notification_count} notification(s) sent
               </p>
             </div>
@@ -1361,6 +1396,149 @@ export const AdminDashboard: React.FC = () => {
               )}
             </div>
 
+            {/* Table Entries — what the user has input into their tables */}
+            <div className="mt-6 pt-6 border-t border-slate-200">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                <h4 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <Activity className="w-5 h-5 text-slate-700" />
+                  Table Entries
+                </h4>
+                {userFinData && (
+                  <div className="flex items-center gap-1.5 overflow-x-auto">
+                    <button
+                      onClick={() => setEntriesTab('income')}
+                      className={`shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                        entriesTab === 'income' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      <TrendingUp className="w-3.5 h-3.5" />
+                      Income ({userFinData.incomeHistory.length})
+                    </button>
+                    <button
+                      onClick={() => setEntriesTab('expenses')}
+                      className={`shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                        entriesTab === 'expenses' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      <TrendingDown className="w-3.5 h-3.5" />
+                      Expenses ({userFinData.expenses.length})
+                    </button>
+                    <button
+                      onClick={() => setEntriesTab('bills')}
+                      className={`shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                        entriesTab === 'bills' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      <Receipt className="w-3.5 h-3.5" />
+                      Bills ({userFinData.bills.length})
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {finDataLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                </div>
+              ) : !userFinData ? (
+                <div className="bg-slate-50 rounded-lg p-6 text-center border border-slate-200">
+                  <p className="text-sm text-slate-500">Could not load this user's entries</p>
+                </div>
+              ) : (
+                <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
+                  {entriesTab === 'income' && (
+                    userFinData.incomeHistory.length === 0 ? (
+                      <div className="bg-slate-50 rounded-lg p-6 text-center border border-slate-200">
+                        <p className="text-sm text-slate-500">No income entries yet</p>
+                      </div>
+                    ) : (
+                      userFinData.incomeHistory.map((entry) => {
+                        const deductions: Array<[string, number | undefined]> = [
+                          ['SSS', entry.sss],
+                          ['Pag-IBIG', entry.pagibig],
+                          ['PhilHealth', entry.philhealth],
+                          ['VUL', entry.vul],
+                          ['Emergency Fund', entry.emergencyFund],
+                          ['General Savings', entry.generalSavings],
+                        ];
+                        return (
+                          <div key={entry.id} className="bg-slate-50 rounded-lg border border-slate-200 p-3">
+                            <div className="flex items-center justify-between gap-3 mb-2">
+                              <span className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
+                                <Calendar className="w-3 h-3" />
+                                {new Date(entry.date).toLocaleDateString()}
+                              </span>
+                              <span className="text-sm font-bold text-emerald-600 tabular-nums">
+                                {formatCurrency(entry.weeklySalary)}
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {deductions.filter(([, amount]) => (amount ?? 0) > 0).map(([label, amount]) => (
+                                <span key={label} className="px-2 py-0.5 bg-white border border-slate-200 rounded-full text-[11px] text-slate-600">
+                                  {label}: {formatCurrency(amount ?? 0)}
+                                </span>
+                              ))}
+                              {(entry.paidBills ?? []).map((bill) => (
+                                <span key={bill.billId} className="px-2 py-0.5 bg-amber-50 border border-amber-200 rounded-full text-[11px] text-amber-700">
+                                  {bill.name}: {formatCurrency(bill.amount)}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })
+                    )
+                  )}
+
+                  {entriesTab === 'expenses' && (
+                    userFinData.expenses.length === 0 ? (
+                      <div className="bg-slate-50 rounded-lg p-6 text-center border border-slate-200">
+                        <p className="text-sm text-slate-500">No expenses yet</p>
+                      </div>
+                    ) : (
+                      userFinData.expenses.map((expense) => (
+                        <div key={expense.id} className="flex items-center justify-between gap-3 bg-slate-50 rounded-lg border border-slate-200 px-3 py-2">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-slate-800 truncate">{expense.description || expense.category}</p>
+                            <p className="text-[11px] text-slate-500">{expense.category} · {new Date(expense.date).toLocaleDateString()}</p>
+                          </div>
+                          <span className="text-sm font-semibold text-red-600 tabular-nums shrink-0">{formatCurrency(expense.amount)}</span>
+                        </div>
+                      ))
+                    )
+                  )}
+
+                  {entriesTab === 'bills' && (
+                    userFinData.bills.length === 0 ? (
+                      <div className="bg-slate-50 rounded-lg p-6 text-center border border-slate-200">
+                        <p className="text-sm text-slate-500">No bills yet</p>
+                      </div>
+                    ) : (
+                      userFinData.bills.map((bill) => {
+                        const paymentsMade = userFinData.billPayments.filter(p => p.billId === bill.id).length;
+                        return (
+                          <div key={bill.id} className="flex items-center justify-between gap-3 bg-slate-50 rounded-lg border border-slate-200 px-3 py-2">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-slate-800 truncate">{bill.name}</p>
+                              <p className="text-[11px] text-slate-500">
+                                {bill.category} · Due {new Date(bill.dueDate).toLocaleDateString()} · {paymentsMade} payment{paymentsMade === 1 ? '' : 's'}
+                              </p>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <p className="text-sm font-semibold text-slate-800 tabular-nums">{formatCurrency(bill.amount)}</p>
+                              <p className={`text-[11px] font-medium ${bill.active ? 'text-emerald-600' : 'text-slate-400'}`}>
+                                {bill.active ? 'Active' : 'Inactive'}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="flex gap-3 justify-end mt-6 pt-6 border-t border-slate-200">
               <button
                 onClick={() => setActionModal({ type: null })}
@@ -1378,14 +1556,16 @@ export const AdminDashboard: React.FC = () => {
                 Send Message
               </button>
             </div>
-          </div>
-        </div>
+        </ModalShell>
       )}
 
       {/* Sent Messages Modal */}
       {showSentMessagesModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col">
+        <ModalShell
+          onClose={() => setShowSentMessagesModal(false)}
+          label="Sent messages"
+          panelClassName="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col"
+        >
             <div className="flex items-center justify-between p-6 border-b border-slate-200">
               <div>
                 <h3 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
@@ -1396,7 +1576,7 @@ export const AdminDashboard: React.FC = () => {
               </div>
               <button
                 onClick={() => setShowSentMessagesModal(false)}
-                className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                className="p-2 hover:bg-slate-100 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
               >
                 <X className="w-5 h-5 text-slate-500" />
               </button>
@@ -1492,8 +1672,7 @@ export const AdminDashboard: React.FC = () => {
                 Close
               </button>
             </div>
-          </div>
-        </div>
+        </ModalShell>
       )}
     </div>
   );

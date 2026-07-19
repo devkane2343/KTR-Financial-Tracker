@@ -26,7 +26,6 @@ import {
   PieChart as ChartIcon,
   History,
   ChevronRight,
-  Save,
   Check,
   AlertCircle,
   LogOut,
@@ -46,6 +45,7 @@ import { saveFinancialDataToSupabase, loadFinancialDataFromSupabase, deleteBillF
 import { getProfilePictureUrl } from './lib/profilePicture';
 import { isUserAdmin } from './lib/adminUtils';
 import { usePrivacyNotice } from './hooks/usePrivacyNotice';
+import { useFundingSources } from './lib/useFundingSources';
 
 const LOGO_URL = '/logo.png';
 
@@ -87,6 +87,15 @@ const App: React.FC = () => {
   }, []);
 
   const { shouldShow: showPrivacyNotice, handleAccept: handlePrivacyAccept } = usePrivacyNotice(user);
+
+  // Liquid pots an expense can be funded from (Wallet, Debit, liquid savings,
+  // liquid custom cards), plus the apply/reverse side-effects that deduct them.
+  const { fundingSources, allPots, applySource, reverseSource, buildWithdrawalRow, transfer } = useFundingSources(
+    data.incomeHistory,
+    data.expenses,
+    // Re-pull balances whenever the user is on a tab that reads/moves them.
+    activeTab === 'expenses' || activeTab === 'networth',
+  );
 
   const dataRef = useRef(data);
   const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -307,23 +316,67 @@ const App: React.FC = () => {
     scheduleAutoSave();
   }, [scheduleAutoSave]);
 
-  const handleAddExpense = useCallback((expense: Expense) => {
-    setData(prev => ({ ...prev, expenses: [expense, ...prev.expenses] }));
-    scheduleAutoSave();
-  }, [scheduleAutoSave]);
+  // Surface a deduction/refund failure without blocking the expense edit itself.
+  const reportSourceError = useCallback((res: { ok: boolean; error?: string }) => {
+    if (!res.ok) {
+      setSaveStatus('error');
+      setSaveError(res.error ?? 'Failed to update the funding source balance.');
+    }
+  }, []);
 
-  const handleUpdateExpense = useCallback((expense: Expense) => {
+  const handleAddExpense = useCallback((expense: Expense) => {
+    // A savings-bucket source lowers a COMPUTED bucket via a paired negative
+    // withdrawal row; Wallet/Debit/custom lower a STORED balance directly.
+    const withdrawal = buildWithdrawalRow(expense);
     setData(prev => ({
       ...prev,
-      expenses: prev.expenses.map(e => e.id === expense.id ? expense : e)
+      expenses: withdrawal
+        ? [withdrawal, expense, ...prev.expenses]
+        : [expense, ...prev.expenses],
     }));
+    if (expense.source) applySource(expense.source, expense.amount).then(reportSourceError);
+    scheduleAutoSave();
+  }, [scheduleAutoSave, buildWithdrawalRow, applySource, reportSourceError]);
+
+  const handleUpdateExpense = useCallback((expense: Expense) => {
+    // Read the pre-edit row via the ref (NOT inside the setData updater — that
+    // runs twice under StrictMode, which would double-apply the balance change).
+    const old = dataRef.current.expenses.find(e => e.id === expense.id);
+    // Reverse the old stored-pot deduction, then apply the new one. Savings
+    // sources are no-ops here (their effect is the withdrawal row, rebuilt below).
+    if (old?.source) reverseSource(old.source, old.amount).then(reportSourceError);
+    if (expense.source) applySource(expense.source, expense.amount).then(reportSourceError);
+
+    // Drop any prior withdrawal row for this expense, then add a fresh one if
+    // the (possibly changed) source is a savings bucket.
+    const withdrawal = buildWithdrawalRow(expense);
+    // A replaced/removed withdrawal row must be deleted from Supabase too.
+    const oldWithdrawal = dataRef.current.expenses.find(e => e.savingsWithdrawalFor === expense.id);
+    if (oldWithdrawal && oldWithdrawal.id !== withdrawal?.id) deleteExpenseFromSupabase(oldWithdrawal.id);
+
+    setData(prev => {
+      const withoutOldWithdrawal = prev.expenses.filter(e => e.savingsWithdrawalFor !== expense.id);
+      const withUpdated = withoutOldWithdrawal.map(e => e.id === expense.id ? expense : e);
+      return {
+        ...prev,
+        expenses: withdrawal ? [withdrawal, ...withUpdated] : withUpdated,
+      };
+    });
     setEditingExpense(null);
     scheduleAutoSave();
-  }, [scheduleAutoSave]);
+  }, [scheduleAutoSave, buildWithdrawalRow, applySource, reverseSource, reportSourceError]);
 
   const handleDeleteExpense = useCallback((id: string) => {
     setEditingExpense(prev => prev?.id === id ? null : prev);
-    setData(prev => ({ ...prev, expenses: prev.expenses.filter(e => e.id !== id) }));
+    // The linked withdrawal row (if any) must be deleted from Supabase too.
+    const removed = dataRef.current.expenses.find(e => e.id === id);
+    const withdrawal = dataRef.current.expenses.find(e => e.savingsWithdrawalFor === id);
+    if (removed?.source) reverseSource(removed.source, removed.amount).then(reportSourceError);
+
+    setData(prev => ({
+      ...prev,
+      expenses: prev.expenses.filter(e => e.id !== id && e.savingsWithdrawalFor !== id),
+    }));
     // Autosave only upserts, so we must explicitly delete the row from
     // Supabase — otherwise it reappears on the next load/refresh.
     deleteExpenseFromSupabase(id).then((res) => {
@@ -332,8 +385,26 @@ const App: React.FC = () => {
         setSaveError(res.error ?? 'Failed to delete expense');
       }
     });
+    if (withdrawal) deleteExpenseFromSupabase(withdrawal.id);
     scheduleAutoSave();
-  }, [scheduleAutoSave]);
+  }, [scheduleAutoSave, reverseSource, reportSourceError]);
+
+  // Move money between two of the user's own pots (bank-transfer-to-self). The
+  // hook applies stored-pot balance changes + the audit log; any computed-bucket
+  // legs come back as signed expense rows we add to data so buckets shift too.
+  const handleTransfer = useCallback(
+    async (from: Expense['source'], to: Expense['source'], amount: number, date: string, note?: string) => {
+      if (!from || !to) return { ok: false, error: 'Pick both a source and a destination.' };
+      const res = await transfer(from, to, amount, date, note);
+      if (!res.ok) return { ok: false, error: res.error };
+      if (res.expenseRows.length > 0) {
+        setData(prev => ({ ...prev, expenses: [...res.expenseRows, ...prev.expenses] }));
+        scheduleAutoSave();
+      }
+      return { ok: true };
+    },
+    [transfer, scheduleAutoSave],
+  );
 
   const handleAddBill = useCallback((bill: Bill) => {
     setData(prev => ({ ...prev, bills: [bill, ...prev.bills] }));
@@ -402,10 +473,6 @@ const App: React.FC = () => {
     scheduleAutoSave();
     return 'paid';
   }, [data.billPayments, scheduleAutoSave]);
-
-  const handleSaveToSupabase = () => {
-    performSave(data);
-  };
 
   const firstName = (user?.user_metadata?.full_name?.split(' ')[0]) ?? '';
   const greetingTime = (() => {
@@ -507,6 +574,7 @@ const App: React.FC = () => {
            onUpdate={handleUpdateExpense}
            editingExpense={editingExpense}
            onCancelEdit={() => setEditingExpense(null)}
+           fundingSources={fundingSources}
          />
          <div className="mt-4 bg-paper p-5 rounded-2xl border border-rule">
             <h3 className="text-sm font-medium text-ink mb-1.5">Tip</h3>
@@ -524,7 +592,7 @@ const App: React.FC = () => {
          />
       </div>
     </div>
-  ), [dashboardData.expenses, editingExpense, handleAddExpense, handleUpdateExpense, handleDeleteExpense]);
+  ), [dashboardData.expenses, editingExpense, handleAddExpense, handleUpdateExpense, handleDeleteExpense, fundingSources]);
 
   const analyticsContent = useMemo(() => (
     <Suspense fallback={<div className="flex items-center justify-center py-16"><span className="w-6 h-6 border-2 border-ink/20 border-t-ink rounded-full animate-spin" /></div>}>
@@ -572,8 +640,13 @@ const App: React.FC = () => {
   ), [data.bills, data.billPayments, editingBill, handleAddBill, handleUpdateBill, handleDeleteBill, handlePayBill]);
 
   const netWorthContent = useMemo(() => (
-    <NetWorthTab data={data} />
-  ), [data]);
+    <NetWorthTab
+      data={data}
+      active={activeTab === 'networth'}
+      pots={allPots}
+      onTransfer={handleTransfer}
+    />
+  ), [data, activeTab, allPots, handleTransfer]);
 
   const adminContent = useMemo(() => (
     <AdminGuard>
@@ -681,41 +754,46 @@ const App: React.FC = () => {
 
             <NotificationBar />
 
-            <button
-              onClick={handleSaveToSupabase}
-              disabled={saveStatus === 'saving'}
-              className={`relative inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors border ${
-                saveStatus === 'success'
-                  ? 'bg-jade-50 text-jade-700 border-jade-100'
-                  : saveStatus === 'error'
-                  ? 'bg-coral-50 text-coral-600 border-coral-100'
-                  : 'bg-paper text-ink hover:bg-paper-soft border-rule'
-              } disabled:opacity-60 disabled:cursor-not-allowed`}
-              title="Save now (changes auto-save after 1.5s)"
-            >
-              {saveStatus === 'saving' && (
-                <>
-                  <span className="w-3.5 h-3.5 border-[1.5px] border-ink/20 border-t-ink rounded-full animate-spin" />
-                  <span className="hidden sm:inline">Saving</span>
-                </>
-              )}
-              {saveStatus === 'success' && (
-                <>
-                  <Check className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">
-                    {saveSuccessCount && (saveSuccessCount.income > 0 || saveSuccessCount.expenses > 0)
-                      ? `Saved ${saveSuccessCount.income}+${saveSuccessCount.expenses}`
-                      : 'Saved'}
-                  </span>
-                </>
-              )}
-              {(saveStatus === 'idle' || saveStatus === 'error') && (
-                <>
-                  <Save className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Save</span>
-                </>
-              )}
-            </button>
+            {/* Auto-save status — passive (not clickable). Everything saves
+                automatically after each change; this just reflects that state.
+                Hidden while idle so it stays out of the way. */}
+            {saveStatus !== 'idle' && (
+              <span
+                role="status"
+                aria-live="polite"
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium border ${
+                  saveStatus === 'success'
+                    ? 'bg-jade-50 text-jade-700 border-jade-100'
+                    : saveStatus === 'error'
+                    ? 'bg-coral-50 text-coral-600 border-coral-100'
+                    : 'bg-paper text-ink-soft border-rule'
+                }`}
+                title={saveStatus === 'error' ? (saveError || 'Save failed') : 'Changes save automatically'}
+              >
+                {saveStatus === 'saving' && (
+                  <>
+                    <span className="w-3.5 h-3.5 border-[1.5px] border-ink/20 border-t-ink rounded-full animate-spin" />
+                    <span className="hidden sm:inline">Saving</span>
+                  </>
+                )}
+                {saveStatus === 'success' && (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">
+                      {saveSuccessCount && (saveSuccessCount.income > 0 || saveSuccessCount.expenses > 0)
+                        ? `Saved ${saveSuccessCount.income}+${saveSuccessCount.expenses}`
+                        : 'Saved'}
+                    </span>
+                  </>
+                )}
+                {saveStatus === 'error' && (
+                  <>
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Save failed</span>
+                  </>
+                )}
+              </span>
+            )}
             {saveStatus === 'error' && saveError && (
               <span className="hidden lg:flex items-center gap-1 text-xs text-coral-500 max-w-[240px] truncate" title={saveError}>
                 <AlertCircle className="w-3.5 h-3.5 shrink-0" />
@@ -814,7 +892,7 @@ const App: React.FC = () => {
         <div className="md:hidden fixed inset-0 z-[60]" role="dialog" aria-modal="true" aria-label="Navigation menu">
           {/* Backdrop */}
           <div
-            className="absolute inset-0 bg-ink/40 backdrop-blur-sm animate-fade-in"
+            className="absolute inset-0 bg-black/50 dark:bg-black/60 backdrop-blur-sm animate-fade-in"
             onClick={() => setIsMobileMenuOpen(false)}
           />
           {/* Panel — slides in from the left */}

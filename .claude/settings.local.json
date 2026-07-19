@@ -33,7 +33,24 @@
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('has verify/run skill config' if d else 'no'\\)\")",
       "Bash(python -c \"import PIL; print\\('PIL', PIL.__version__\\)\")",
       "Read(//c/Users/Itachi/AppData/Local/Temp/claude/**)",
-      "Bash(python3)"
+      "Bash(python3)",
+      "Bash(cat \"C:\\\\Users\\\\Kane\\\\.claude\\\\projects\\\\c--Users-Kane-Desktop-KTR-Financial-Tracker\\\\37ee3219-54e0-40ce-99f0-f50d5d2908b3\\\\subagents\\\\workflows\\\\wf_3e2f7103-ced\\\\journal.jsonl\" 2>/dev/null | tail -20 || echo \"no journal yet\")",
+      "Read(//c/Users/Kane/.claude/projects/c--Users-Kane-Desktop-KTR-Financial-Tracker/37ee3219-54e0-40ce-99f0-f50d5d2908b3/subagents/workflows/wf_3e2f7103-ced/**)",
+      "Bash(python3 -)",
+      "Bash(node -e ' *)",
+      "WebSearch",
+      "Skill(run)",
+      "Skill(run:*)",
+      "Bash(command -v chromium-cli)",
+      "Bash(command -v npx)",
+      "WebFetch(domain:mp2savingscalculator.net)",
+      "WebFetch(domain:sweldoph.com)",
+      "WebFetch(domain:www.pagibigfund.gov.ph)",
+      "WebFetch(domain:www.rappler.com)",
+      "Bash(until [ -f \"C:/Users/Kane/.claude/projects/c--Users-Kane-Desktop-KTR-Financial-Tracker/a5b2ab35-dedf-400b-b59a-7062483eec14/subagents/workflows/wf_149a0cf1-353/journal.jsonl\" ] && grep -q '\"type\":\"workflow-complete\"\\\\|verify:rates' \"C:/Users/Kane/.claude/projects/c--Users-Kane-Desktop-KTR-Financial-Tracker/a5b2ab35-dedf-400b-b59a-7062483eec14/subagents/workflows/wf_149a0cf1-353/journal.jsonl\" 2>/dev/null; do sleep 10; done; echo \"done\")",
+      "Read(//c/Users/Kane/.claude/projects/c--Users-Kane-Desktop-KTR-Financial-Tracker/a5b2ab35-dedf-400b-b59a-7062483eec14/subagents/workflows/wf_149a0cf1-353/**)",
+      "WebFetch(domain:www.gmanetwork.com)",
+      "Bash([ -f \"$f\" ])"
     ]
   }
 }

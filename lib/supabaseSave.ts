@@ -31,7 +31,7 @@ function toBillRow(bill: Bill, id: string, userId: string) {
   };
 }
 
-function fromBillRow(row: {
+export function fromBillRow(row: {
   id: string;
   name: string;
   amount: number;
@@ -63,7 +63,7 @@ function toBillPaymentRow(payment: BillPayment, id: string, userId: string) {
   };
 }
 
-function fromBillPaymentRow(row: {
+export function fromBillPaymentRow(row: {
   id: string;
   bill_id: string;
   due_date: string;
@@ -87,10 +87,13 @@ function toExpenseRow(expense: Expense, id: string, userId: string) {
     category: expense.category,
     amount: expense.amount,
     description: expense.description ?? '',
+    source: expense.source ?? null,
+    savings_withdrawal_for: expense.savingsWithdrawalFor ?? null,
+    transfer_id: expense.transferId ?? null,
   };
 }
 
-function fromIncomeRow(row: {
+export function fromIncomeRow(row: {
   id: string;
   date: string;
   weekly_salary: number;
@@ -116,12 +119,15 @@ function fromIncomeRow(row: {
   };
 }
 
-function fromExpenseRow(row: {
+export function fromExpenseRow(row: {
   id: string;
   date: string;
   category: string;
   amount: number;
   description: string | null;
+  source?: Expense['source'] | null;
+  savings_withdrawal_for?: string | null;
+  transfer_id?: string | null;
 }): Expense {
   return {
     id: row.id,
@@ -129,6 +135,9 @@ function fromExpenseRow(row: {
     category: row.category as Expense['category'],
     amount: Number(row.amount),
     description: row.description ?? '',
+    source: row.source ?? undefined,
+    savingsWithdrawalFor: row.savings_withdrawal_for ?? undefined,
+    transferId: row.transfer_id ?? undefined,
   };
 }
 

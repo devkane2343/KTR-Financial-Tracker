@@ -1,24 +1,40 @@
 
 import React, { useState, useEffect } from 'react';
-import { Expense, Category } from '../types';
+import { Expense, Category, ExpenseSource } from '../types';
 import { CATEGORIES } from '../constants';
-import { generateId, getLocalDateString } from '../lib/utils';
-import { PlusCircle, Calendar, Save, X } from 'lucide-react';
+import { generateId, getLocalDateString, formatCurrency } from '../lib/utils';
+import { PlusCircle, Calendar, Save, X, Wallet } from 'lucide-react';
+
+/** A liquid pot the user can fund an expense from, with its current balance. */
+export interface FundingSource {
+  /** Stable key for the <option>: 'wallet' | 'debit' | 'savings:<bucket>' | 'custom:<id>'. */
+  key: string;
+  source: ExpenseSource;
+  balance: number;
+}
 
 interface ExpenseFormProps {
   onAdd: (expense: Expense) => void;
   onUpdate?: (expense: Expense) => void;
   editingExpense?: Expense | null;
   onCancelEdit?: () => void;
+  /** Liquid pots the expense can be paid from (Wallet, Debit, liquid savings). */
+  fundingSources?: FundingSource[];
 }
 
-export const ExpenseForm: React.FC<ExpenseFormProps> = ({ onAdd, onUpdate, editingExpense, onCancelEdit }) => {
+/** Rebuild the stable <option> key for a source, so editing pre-selects it. */
+const sourceKey = (s: ExpenseSource): string =>
+  s.kind === 'savings' ? `savings:${s.id}` : s.kind === 'custom' ? `custom:${s.id}` : s.kind;
+
+export const ExpenseForm: React.FC<ExpenseFormProps> = ({ onAdd, onUpdate, editingExpense, onCancelEdit, fundingSources = [] }) => {
   const [formData, setFormData] = useState({
     date: getLocalDateString(),
     category: Category.Food,
     amount: '',
     description: ''
   });
+  // Selected funding source, keyed by FundingSource.key. '' = "Don't track / none".
+  const [sourceKeySel, setSourceKeySel] = useState('');
 
   useEffect(() => {
     if (editingExpense) {
@@ -28,24 +44,41 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ onAdd, onUpdate, editi
         amount: editingExpense.amount.toString(),
         description: editingExpense.description || ''
       });
+      setSourceKeySel(editingExpense.source ? sourceKey(editingExpense.source) : '');
     } else {
       setFormData({ date: getLocalDateString(), category: Category.Food, amount: '', description: '' });
+      setSourceKeySel('');
     }
   }, [editingExpense]);
+
+  // The picked source (if any) and whether the balance can cover this expense.
+  const selected = fundingSources.find(s => s.key === sourceKeySel) ?? null;
+  const amountNum = parseFloat(formData.amount);
+  // When editing an expense that already drew from this same source, that draw is
+  // already reflected in the balance — allow re-saving the same amount.
+  const alreadyDrawn =
+    editingExpense?.source && selected && sourceKey(editingExpense.source) === selected.key
+      ? editingExpense.amount
+      : 0;
+  const available = selected ? selected.balance + alreadyDrawn : Infinity;
+  const overspend = selected != null && Number.isFinite(amountNum) && amountNum > available;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.amount || parseFloat(formData.amount) <= 0) return;
+    if (overspend) return;
     const expense: Expense = {
       id: editingExpense ? editingExpense.id : generateId(),
       date: formData.date,
       category: formData.category as Category,
       amount: parseFloat(formData.amount),
-      description: formData.description
+      description: formData.description,
+      // Snapshot the label so the list still reads right if the card is renamed.
+      source: selected ? { ...selected.source } : undefined,
     };
     if (editingExpense && onUpdate) onUpdate(expense);
     else onAdd(expense);
-    if (!editingExpense) setFormData({ ...formData, amount: '', description: '' });
+    if (!editingExpense) { setFormData({ ...formData, amount: '', description: '' }); setSourceKeySel(''); }
   };
 
   const labelClass = "text-xs font-medium text-ink-soft mb-1 block";
@@ -111,6 +144,36 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ onAdd, onUpdate, editi
           </div>
         </div>
 
+        {/* Paid from — which liquid pot funds this expense. Selecting one
+            auto-deducts the amount from that pot's balance on save. */}
+        <div>
+          <label className={labelClass}>
+            <span className="inline-flex items-center gap-1.5"><Wallet className="w-3 h-3" /> Paid from <span className="font-normal text-ink-whisper ml-1">(optional)</span></span>
+          </label>
+          <select
+            value={sourceKeySel}
+            onChange={(e) => setSourceKeySel(e.target.value)}
+            className={`${inputClass} ${overspend ? 'border-coral-400' : ''}`}
+          >
+            <option value="">Don't deduct from a balance</option>
+            {fundingSources.map(s => (
+              <option key={s.key} value={s.key}>
+                {s.source.label} — {formatCurrency(s.balance)} available
+              </option>
+            ))}
+          </select>
+          {selected && !overspend && Number.isFinite(amountNum) && amountNum > 0 && (
+            <p className="mt-1 text-[11px] text-ink-muted">
+              Leaves {formatCurrency(available - amountNum)} in {selected.source.label}.
+            </p>
+          )}
+          {overspend && (
+            <p className="mt-1 text-[11px] text-coral-600">
+              Only {formatCurrency(available)} available in {selected?.source.label}. Lower the amount or pick another source.
+            </p>
+          )}
+        </div>
+
         <div>
           <label className={labelClass}>Notes <span className="font-normal text-ink-whisper ml-1">(optional)</span></label>
           <textarea
@@ -124,7 +187,8 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ onAdd, onUpdate, editi
 
         <button
           type="submit"
-          className="w-full py-2.5 bg-ink hover:bg-ink-soft text-paper rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+          disabled={overspend}
+          className="w-full py-2.5 bg-ink hover:bg-ink-soft text-paper rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {editingExpense ? <Save className="w-4 h-4" /> : <PlusCircle className="w-4 h-4" />}
           <span>{editingExpense ? 'Save changes' : 'Add expense'}</span>

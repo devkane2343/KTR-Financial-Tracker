@@ -116,6 +116,23 @@ export const isSavingsCategory = (category: string): boolean =>
   category === Category.Savings ||
   category === Category.PagibigMP2;
 
+/**
+ * True for the synthetic rows we generate to shift a COMPUTED savings bucket
+ * without a real expense: either a withdrawal that funds an expense
+ * (savingsWithdrawalFor) or a leg of a self-transfer (transferId). They carry a
+ * signed amount in the bucket's category so the total moves, but they are NOT
+ * real expenses — hide them from the Expenses list, category charts, and totals.
+ */
+export const isSyntheticSavingsRow = (expense: Expense): boolean =>
+  Boolean(expense.savingsWithdrawalFor) || Boolean(expense.transferId);
+
+/** @deprecated use {@link isSyntheticSavingsRow} — kept for existing call sites. */
+export const isSavingsWithdrawal = isSyntheticSavingsRow;
+
+/** Expenses the user should actually see/manage — drops synthetic rows. */
+export const visibleExpenses = (expenses: Expense[]): Expense[] =>
+  expenses.filter(e => !isSyntheticSavingsRow(e));
+
 /** Savings split into its buckets, each summing both sources (income deductions + expense rows). */
 export interface SavingsBreakdown {
   emergencyFund: number;
@@ -161,9 +178,10 @@ export type SavingsBucket = 'emergencyFund' | 'generalSavings' | 'pagibigMP2' | 
 export interface SavingsContribution {
   /** YYYY-MM-DD */
   date: string;
+  /** Positive for money added; negative for a withdrawal (source==='withdrawal'). */
   amount: number;
-  /** Where it came from: a paycheck deduction or a logged expense entry. */
-  source: 'paycheck' | 'expense';
+  /** Where it came from: a paycheck deduction, a logged expense, or a withdrawal. */
+  source: 'paycheck' | 'expense' | 'withdrawal';
   /** Free-text note (expense description, or a paycheck label). */
   description: string;
 }
@@ -188,12 +206,16 @@ export const getSavingsContributions = (
     other: Category.Savings,
   };
 
-  // Expense-row contributions (all buckets).
+  // Expense-row contributions (all buckets). Positive rows are money set aside;
+  // negative rows are withdrawals we generated to fund an expense from this
+  // bucket — list them too so the itemized total reconciles with the card value.
   expenses
     .filter(e => e.category === expenseCategory[bucket])
     .forEach(e => {
       if (e.amount > 0) {
         out.push({ date: e.date, amount: e.amount, source: 'expense', description: e.description || '' });
+      } else if (e.amount < 0) {
+        out.push({ date: e.date, amount: e.amount, source: 'withdrawal', description: e.description || 'Withdrawn' });
       }
     });
 

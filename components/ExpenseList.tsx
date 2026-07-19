@@ -3,7 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
 import { Expense } from '../types';
 import { CATEGORIES } from '../constants';
-import { formatCurrency, formatDateString, isSavingsCategory } from '../lib/utils';
+import { formatCurrency, formatDateString, isSavingsCategory, isSyntheticSavingsRow } from '../lib/utils';
 import { Trash2, Search, ChevronLeft, ChevronRight, Pencil, CalendarDays, PieChart as PieIcon, Receipt } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme';
 
@@ -55,12 +55,16 @@ export const ExpenseList: React.FC<ExpenseListProps> = ({ expenses, onDelete, on
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 8;
 
-  const availableMonths = useMemo(() => {
-    const months = new Set(expenses.map(exp => exp.date.slice(0, 7)));
-    return Array.from(months).sort((a, b) => b.localeCompare(a));
-  }, [expenses]);
+  // Synthetic savings rows (withdrawals + transfer legs) move a bucket on the
+  // Net Worth tab but are not real expenses — never list, chart, or total them.
+  const realExpenses = useMemo(() => expenses.filter(e => !isSyntheticSavingsRow(e)), [expenses]);
 
-  const filteredExpenses = useMemo(() => expenses
+  const availableMonths = useMemo(() => {
+    const months = new Set(realExpenses.map(exp => exp.date.slice(0, 7)));
+    return Array.from(months).sort((a, b) => b.localeCompare(a));
+  }, [realExpenses]);
+
+  const filteredExpenses = useMemo(() => realExpenses
     .filter(exp => {
       const matchesSearch = exp.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
                             exp.category.toLowerCase().includes(searchTerm.toLowerCase());
@@ -69,7 +73,7 @@ export const ExpenseList: React.FC<ExpenseListProps> = ({ expenses, onDelete, on
       return matchesSearch && matchesCategory && matchesMonth;
     })
     .sort((a, b) => b.date.localeCompare(a.date)),
-  [expenses, searchTerm, filterCategory, filterMonth]);
+  [realExpenses, searchTerm, filterCategory, filterMonth]);
 
   const totalPages = Math.ceil(filteredExpenses.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;

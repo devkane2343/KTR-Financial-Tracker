@@ -238,8 +238,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ user, onPortfolioSaved
                   )}
                 </div>
                 {uploadingAvatar && (
-                  <div className="absolute inset-0 bg-ink/50 rounded-full flex items-center justify-center">
-                    <Loader2 className="w-5 h-5 text-paper animate-spin" />
+                  <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center">
+                    <Loader2 className="w-5 h-5 text-white animate-spin" />
                   </div>
                 )}
               </div>

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Shield, CheckCircle } from 'lucide-react';
+import { useModal } from '../lib/useModal';
 
 interface PrivacyNoticeModalProps {
   isOpen: boolean;
@@ -17,12 +18,18 @@ export const PrivacyNoticeModal: React.FC<PrivacyNoticeModalProps> = ({ isOpen, 
     }
   }, [isOpen]);
 
-  if (!isOpen) return null;
-
   const handleAccept = () => {
     setIsVisible(false);
     setTimeout(onAccept, 200);
   };
+
+  // Focus trap + scroll lock for the consent gate. Escape must NOT dismiss it —
+  // agreeing is required — so escapeClosable is false; the hook only keeps focus
+  // inside the dialog and locks the page behind it. `active: isOpen` keeps it
+  // inert while the always-mounted modal is closed.
+  const panelRef = useModal<HTMLDivElement>(handleAccept, { escapeClosable: false, active: isOpen });
+
+  if (!isOpen) return null;
 
   const items: { title: string; body: React.ReactNode }[] = [
     {
@@ -54,14 +61,19 @@ export const PrivacyNoticeModal: React.FC<PrivacyNoticeModalProps> = ({ isOpen, 
   return (
     <div
       className={`fixed inset-0 z-[100] flex items-center justify-center p-4 transition-all duration-300 ${
-        isVisible ? 'bg-ink/40 backdrop-blur-sm' : 'bg-ink/0'
+        isVisible ? 'bg-black/50 dark:bg-black/60 backdrop-blur-sm' : 'bg-black/0'
       }`}
       onClick={(e) => {
         if (e.target === e.currentTarget) handleAccept();
       }}
     >
       <div
-        className={`bg-paper rounded-xl border border-rule shadow-paper-lift w-full max-w-xl max-h-[90vh] overflow-hidden transition-all duration-300 transform ${
+        ref={panelRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="privacy-notice-title"
+        className={`bg-paper rounded-xl border border-rule shadow-paper-lift w-full max-w-xl max-h-[90vh] overflow-hidden transition-all duration-300 transform focus:outline-none ${
           isVisible ? 'scale-100 opacity-100' : 'scale-95 opacity-0'
         }`}
       >
@@ -70,7 +82,7 @@ export const PrivacyNoticeModal: React.FC<PrivacyNoticeModalProps> = ({ isOpen, 
             <Shield className="w-5 h-5 text-ink-soft" />
           </div>
           <div>
-            <h2 className="text-base font-medium text-ink">Privacy notice</h2>
+            <h2 id="privacy-notice-title" className="text-base font-medium text-ink">Privacy notice</h2>
             <p className="text-xs text-ink-muted">Welcome to Fintech</p>
           </div>
         </div>
@@ -106,7 +118,8 @@ export const PrivacyNoticeModal: React.FC<PrivacyNoticeModalProps> = ({ isOpen, 
         <div className="p-4 sm:p-5 bg-paper-soft/60 border-t border-rule">
           <button
             onClick={handleAccept}
-            className="w-full bg-ink hover:bg-ink-soft text-paper px-6 py-2.5 rounded-lg font-medium text-sm transition-colors flex items-center justify-center gap-2"
+            data-autofocus
+            className="w-full bg-ink hover:bg-ink-soft text-paper px-6 py-2.5 rounded-lg font-medium text-sm transition-colors flex items-center justify-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/30 focus-visible:ring-offset-2 focus-visible:ring-offset-paper"
           >
             <CheckCircle className="w-4 h-4" />
             I agree &amp; continue
