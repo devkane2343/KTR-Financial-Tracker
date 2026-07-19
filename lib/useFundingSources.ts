@@ -71,6 +71,14 @@ export interface UseFundingSources {
   /** Reverse a previously-applied source (credit the amount back). */
   reverseSource: (source: ExpenseSource, amount: number) => Promise<{ ok: boolean; error?: string }>;
   /**
+   * Salary reconciliation helpers. The Debit Card is the paycheck's point of
+   * entry, so logging a paycheck deposits its take-home here; editing/deleting
+   * reverses it. Thin, intent-named wrappers over the stored-balance adjust so
+   * the income handlers don't have to reason about the spend/refund sign.
+   */
+  depositToDebit: (amount: number) => Promise<{ ok: boolean; error?: string }>;
+  withdrawFromDebit: (amount: number) => Promise<{ ok: boolean; error?: string }>;
+  /**
    * Build the synthetic negative withdrawal row for a savings-bucket-funded
    * expense, or null if the source isn't a savings bucket. The row carries a
    * NEGATIVE amount in the bucket's category and links back via savingsWithdrawalFor.
@@ -245,6 +253,18 @@ export function useFundingSources(
     [adjustStored],
   );
 
+  // Salary in/out on the Debit Card. amount<=0 is a no-op so a zero take-home
+  // paycheck (or a delete of one) doesn't churn the balance or its save call.
+  const DEBIT: ExpenseSource = { kind: 'debit', label: 'Debit Card' };
+  const depositToDebit = useCallback(
+    (amount: number) => amount > 0 ? adjustStored(DEBIT, amount, +1) : Promise.resolve({ ok: true }),
+    [adjustStored],
+  );
+  const withdrawFromDebit = useCallback(
+    (amount: number) => amount > 0 ? adjustStored(DEBIT, amount, -1) : Promise.resolve({ ok: true }),
+    [adjustStored],
+  );
+
   const buildWithdrawalRow = useCallback((parent: Expense): Expense | null => {
     if (parent.source?.kind !== 'savings' || !parent.source.id) return null;
     const bucket = parent.source.id as SavingsBucket;
@@ -349,6 +369,8 @@ export function useFundingSources(
     loaded: walletLoaded && customLoaded,
     applySource,
     reverseSource,
+    depositToDebit,
+    withdrawFromDebit,
     buildWithdrawalRow,
     transfer,
   };

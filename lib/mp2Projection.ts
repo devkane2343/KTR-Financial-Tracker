@@ -188,3 +188,126 @@ export function projectMp2(input: Mp2ProjectionInput): Mp2ProjectionResult {
 
   return { rows, totalContributed, totalDividends, maturityValue };
 }
+
+/** A dated MP2 contribution (positive = money in, negative = withdrawal). */
+export interface Mp2ContributionPoint {
+  /** YYYY-MM-DD */
+  date: string;
+  amount: number;
+}
+
+/** Paid MP2 months per year, derived from real payments: year → sorted month numbers 1..12. */
+export type Mp2PaidMonths = Record<string, number[]>;
+
+/** One calendar month that had MP2 activity, for the payment breakdown list. */
+export interface Mp2MonthlyPayment {
+  /** 'YYYY-MM' */
+  monthKey: string;
+  year: number;
+  /** 1..12 */
+  month: number;
+  /** Summed positive contributions that landed in this month (service charge netted out). */
+  amount: number;
+}
+
+/** What the projection's monthly figure should default to, derived from real data. */
+export interface Mp2ContributionSummary {
+  /** Average net contribution per active month (INCLUDING any opening lump — the
+   *  UI derives a lump-excluded "recurring" figure itself). Kept for reference. */
+  suggestedMonthly: number;
+  /** Number of distinct calendar months that had any positive contribution. */
+  activeMonths: number;
+  /** Total positive contributions across the history (service charges netted out). */
+  totalIn: number;
+  /**
+   * Total service charge stripped across all months (raw positive sum − totalIn).
+   * Subtract this from the raw MP2 balance to get a fee-clean opening balance that
+   * still reflects withdrawals (which this positive-only summary otherwise ignores).
+   */
+  serviceChargeStripped: number;
+  /** True if there's enough history to suggest a monthly figure (≥1 active month). */
+  hasHistory: boolean;
+  /** Which months were actually paid, per year — auto-fills the months-paid grid. */
+  paidMonths: Mp2PaidMonths;
+  /** Per-month payment totals (newest-first), for the payment breakdown. */
+  monthlyPayments: Mp2MonthlyPayment[];
+  /**
+   * The biggest single month's contribution — typically the one-time opening
+   * lump. Surfaced so the UI can suggest it as the opening balance and keep it
+   * out of the recurring-monthly figure.
+   */
+  largestMonth: Mp2MonthlyPayment | null;
+}
+
+/**
+ * A small fixed fee (e.g. a ₱14 bank/remittance service charge) rides along with
+ * a contribution — the user asked that this trailing charge not be counted as
+ * savings, so ₱50,014 reads as a clean ₱50,000.
+ *
+ * Deliberately conservative so we NEVER mangle a legitimate contribution: we only
+ * strip a fee-sized remainder (≤ ₱15 — covers the ₱14) off an otherwise-round
+ * hundred, and only on amounts ≥ ₱1,000 (where a small fixed fee plausibly rode
+ * along). So ₱50,014 → ₱50,000 and ₱1,014 → ₱1,000, but ₱1,540 / ₱2,530 / ₱1,050
+ * (remainder > ₱15) and ₱149 / ₱530 (under ₱1,000) all stay exactly as entered.
+ */
+const SERVICE_CHARGE_MAX = 15;
+export function netServiceCharge(amount: number): number {
+  if (!(amount >= 1000)) return amount;                 // only sizeable lumps carry a fee
+  const remainder = amount % 100;
+  return remainder > 0 && remainder <= SERVICE_CHARGE_MAX ? amount - remainder : amount;
+}
+
+/**
+ * Reconcile the projection with the user's ACTUAL MP2 contributions so the
+ * forecast reflects what they've really paid, not a flat guess.
+ *
+ * Only positive contributions count (withdrawals don't tell us a saving
+ * cadence). Each month's total has any tiny service charge netted out. We derive:
+ *   • paidMonths      — which calendar months were actually paid (auto-grid);
+ *   • monthlyPayments — per-month totals for the breakdown list;
+ *   • largestMonth    — the biggest month (usually the one-time opening lump);
+ *   • suggestedMonthly— average net contribution per active month.
+ *
+ * Falls back to hasHistory=false when there's nothing to go on so the caller can
+ * keep a sensible default.
+ */
+export function summarizeMp2Contributions(points: Mp2ContributionPoint[]): Mp2ContributionSummary {
+  const monthly = new Map<string, number>(); // 'YYYY-MM' → summed positive amount
+  for (const p of points) {
+    if (!(p.amount > 0)) continue;            // skip withdrawals / zero rows
+    const key = p.date.slice(0, 7);           // 'YYYY-MM'
+    monthly.set(key, (monthly.get(key) ?? 0) + p.amount);
+  }
+
+  // Net the service charge per month (after summing, so multiple small same-month
+  // payments aren't each mis-stripped). We keep the raw pre-net amount alongside
+  // each surviving month so the stripped total counts ONLY months we actually use.
+  const withRaw = Array.from(monthly.entries())
+    .map(([monthKey, raw]) => {
+      const [y, m] = monthKey.split('-').map(Number);
+      return { monthKey, year: y, month: m, raw, amount: netServiceCharge(raw) };
+    })
+    .filter(p => p.amount > 0 && Number.isFinite(p.year) && p.month >= 1 && p.month <= 12)
+    .sort((a, b) => (a.monthKey < b.monthKey ? 1 : a.monthKey > b.monthKey ? -1 : 0)); // newest first
+
+  const monthlyPayments: Mp2MonthlyPayment[] = withRaw.map(({ monthKey, year, month, amount }) => ({ monthKey, year, month, amount }));
+  const totalIn = monthlyPayments.reduce((s, p) => s + p.amount, 0);
+  const serviceChargeStripped = Math.max(0, Math.round(withRaw.reduce((s, p) => s + (p.raw - p.amount), 0) * 100) / 100);
+  const activeMonths = monthlyPayments.length;
+  const suggestedMonthly = activeMonths > 0 ? Math.round(totalIn / activeMonths) : 0;
+
+  // Auto months-paid grid: every month with a real payment is marked paid.
+  const paidMonths: Mp2PaidMonths = {};
+  for (const p of monthlyPayments) {
+    const yr = String(p.year);
+    (paidMonths[yr] ??= []).push(p.month);
+  }
+  for (const yr of Object.keys(paidMonths)) paidMonths[yr].sort((a, b) => a - b);
+
+  const largestMonth = monthlyPayments.reduce<Mp2MonthlyPayment | null>(
+    (best, p) => (best === null || p.amount > best.amount ? p : best),
+    null,
+  );
+
+  return { suggestedMonthly, activeMonths, totalIn, serviceChargeStripped, hasHistory: activeMonths > 0, paidMonths, monthlyPayments, largestMonth };
+}

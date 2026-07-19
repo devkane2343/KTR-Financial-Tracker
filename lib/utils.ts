@@ -44,6 +44,20 @@ export const getNetIncome = (income: IncomeEntry | { weeklySalary: number; sss: 
   return Math.max(0, income.weeklySalary - totalDeductions);
 };
 
+/**
+ * The cash a paycheck actually LEAVES ON THE DEBIT CARD: net income minus the
+ * bills settled from this same paycheck. The debit card is the salary's point of
+ * entry, so logging a paycheck credits this figure to the Debit balance (and
+ * editing/deleting reconciles the delta). It mirrors the form's "Net to take
+ * home". Statutory deductions are already gone; EF/General set-asides live in
+ * their savings buckets; bills paid now are recorded as expenses — so only this
+ * remainder stays as spendable debit cash.
+ */
+export const getPaycheckTakeHome = (income: IncomeEntry): number => {
+  const billsTotal = (income.paidBills ?? []).reduce((s, b) => s + (b.amount || 0), 0);
+  return Math.max(0, getNetIncome(income) - billsTotal);
+};
+
 /** Returns true if any payment for this bill has a dueDate in the current calendar month. */
 export const isBillPaidThisMonth = (billId: string, payments: BillPayment[]): boolean => {
   const now = new Date();

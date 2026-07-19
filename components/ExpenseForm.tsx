@@ -4,6 +4,7 @@ import { Expense, Category, ExpenseSource } from '../types';
 import { CATEGORIES } from '../constants';
 import { generateId, getLocalDateString, formatCurrency } from '../lib/utils';
 import { PlusCircle, Calendar, Save, X, Wallet } from 'lucide-react';
+import { Select } from './UI/Select';
 
 /** A liquid pot the user can fund an expense from, with its current balance. */
 export interface FundingSource {
@@ -34,7 +35,10 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ onAdd, onUpdate, editi
     description: ''
   });
   // Selected funding source, keyed by FundingSource.key. '' = "Don't track / none".
-  const [sourceKeySel, setSourceKeySel] = useState('');
+  // New expenses default to the Debit Card — it's the salary's point of entry, so
+  // day-to-day spending is assumed to draw from it unless the user picks otherwise.
+  const DEFAULT_SOURCE = 'debit';
+  const [sourceKeySel, setSourceKeySel] = useState(DEFAULT_SOURCE);
 
   useEffect(() => {
     if (editingExpense) {
@@ -47,7 +51,7 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ onAdd, onUpdate, editi
       setSourceKeySel(editingExpense.source ? sourceKey(editingExpense.source) : '');
     } else {
       setFormData({ date: getLocalDateString(), category: Category.Food, amount: '', description: '' });
-      setSourceKeySel('');
+      setSourceKeySel(DEFAULT_SOURCE);
     }
   }, [editingExpense]);
 
@@ -78,7 +82,7 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ onAdd, onUpdate, editi
     };
     if (editingExpense && onUpdate) onUpdate(expense);
     else onAdd(expense);
-    if (!editingExpense) { setFormData({ ...formData, amount: '', description: '' }); setSourceKeySel(''); }
+    if (!editingExpense) { setFormData({ ...formData, amount: '', description: '' }); setSourceKeySel(DEFAULT_SOURCE); }
   };
 
   const labelClass = "text-xs font-medium text-ink-soft mb-1 block";
@@ -132,15 +136,12 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ onAdd, onUpdate, editi
           </div>
           <div>
             <label className={labelClass}>Category</label>
-            <select
+            <Select
+              aria-label="Category"
               value={formData.category}
-              onChange={(e) => setFormData({ ...formData, category: e.target.value as Category })}
-              className={inputClass}
-            >
-              {CATEGORIES.map(cat => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
-            </select>
+              onChange={(v) => setFormData({ ...formData, category: v as Category })}
+              options={CATEGORIES.map(cat => ({ value: cat, label: cat }))}
+            />
           </div>
         </div>
 
@@ -150,18 +151,19 @@ export const ExpenseForm: React.FC<ExpenseFormProps> = ({ onAdd, onUpdate, editi
           <label className={labelClass}>
             <span className="inline-flex items-center gap-1.5"><Wallet className="w-3 h-3" /> Paid from <span className="font-normal text-ink-whisper ml-1">(optional)</span></span>
           </label>
-          <select
+          <Select
+            aria-label="Paid from"
             value={sourceKeySel}
-            onChange={(e) => setSourceKeySel(e.target.value)}
-            className={`${inputClass} ${overspend ? 'border-coral-400' : ''}`}
-          >
-            <option value="">Don't deduct from a balance</option>
-            {fundingSources.map(s => (
-              <option key={s.key} value={s.key}>
-                {s.source.label} — {formatCurrency(s.balance)} available
-              </option>
-            ))}
-          </select>
+            onChange={setSourceKeySel}
+            className={overspend ? '!border-coral-400' : ''}
+            options={[
+              { value: '', label: "Don't deduct from a balance" },
+              ...fundingSources.map(s => ({
+                value: s.key,
+                label: `${s.source.label} — ${formatCurrency(s.balance)} available`,
+              })),
+            ]}
+          />
           {selected && !overspend && Number.isFinite(amountNum) && amountNum > 0 && (
             <p className="mt-1 text-[11px] text-ink-muted">
               Leaves {formatCurrency(available - amountNum)} in {selected.source.label}.

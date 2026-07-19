@@ -237,14 +237,95 @@
       input, select, textarea, button {
         font-family: 'Geist', ui-sans-serif, system-ui, sans-serif;
       }
-      input[type="date"]::-webkit-calendar-picker-indicator {
-        opacity: 0.5;
+
+      /* ----------------------------------------------------------------------
+         Native <select> dropdowns — replace the OS chevron with a themed one.
+         Components style the box (bg/border/radius/focus) via `inputClass`;
+         this only handles what Tailwind utilities can't reach: killing the
+         default appearance and painting a consistent caret + hover affordance.
+         The caret is an inline SVG data-URI tinted per theme (currentColor
+         can't be used inside background-image), so it flips with dark mode.
+         `padding-right` reserves room so long option text never sits under it.
+      ---------------------------------------------------------------------- */
+      select {
+        -webkit-appearance: none;
+        -moz-appearance: none;
+        appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2352525b' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 0.75rem center;
+        background-size: 1rem 1rem;
         cursor: pointer;
-        filter: invert(0);
       }
-      .dark input[type="date"]::-webkit-calendar-picker-indicator {
+      /* Reserve room for the caret. `!important` so it wins over the `px-3`
+         utility class the shared `inputClass` applies (a class selector would
+         otherwise out-specify the bare `select` element rule). Selects that
+         draw their own icon opt out via `.appearance-none` (handled below). */
+      select:not(.appearance-none) {
+        padding-right: 2.25rem !important;
+      }
+      .dark select {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a1a1aa' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+      }
+      /* Sharpen the caret on hover/focus so the control feels interactive. */
+      select:hover {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2318181b' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+      }
+      .dark select:hover {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23fafafa' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+      }
+      /* Some components already add their own `pr-8` + absolute icon on a
+         wrapper (e.g. the month/status filters). Those pass `appearance-none`
+         explicitly and hide our caret so the two don't collide. */
+      select.appearance-none {
+        background-image: none;
+      }
+      /* The open dropdown menu itself is OS-drawn, but we can theme its option
+         rows in Chromium/Firefox so they match the app surface, not stark white. */
+      select option {
+        background-color: rgb(var(--paper));
+        color: rgb(var(--ink));
+      }
+
+      /* ----------------------------------------------------------------------
+         Date / month pickers — enlarge the calendar affordance into a proper
+         clickable target and tint it per theme. The whole field opens the
+         picker on modern browsers; this just makes the indicator legible.
+      ---------------------------------------------------------------------- */
+      input[type="date"],
+      input[type="month"] {
+        cursor: pointer;
+      }
+      input[type="date"]::-webkit-calendar-picker-indicator,
+      input[type="month"]::-webkit-calendar-picker-indicator {
+        opacity: 0.55;
+        cursor: pointer;
+        padding: 2px;
+        margin-left: 4px;
+        border-radius: 6px;
+        filter: invert(0);
+        transition: opacity 150ms ease, background-color 150ms ease;
+      }
+      input[type="date"]::-webkit-calendar-picker-indicator:hover,
+      input[type="month"]::-webkit-calendar-picker-indicator:hover {
+        opacity: 1;
+        background-color: rgb(var(--ink) / 0.06);
+      }
+      .dark input[type="date"]::-webkit-calendar-picker-indicator,
+      .dark input[type="month"]::-webkit-calendar-picker-indicator {
         filter: invert(1);
       }
+      .dark input[type="date"]::-webkit-calendar-picker-indicator:hover,
+      .dark input[type="month"]::-webkit-calendar-picker-indicator:hover {
+        background-color: rgb(255 255 255 / 0.10);
+      }
+      /* Placeholder-style muting when a native date field has no value yet. */
+      input[type="date"]:not(:focus):in-range::-webkit-datetime-edit-year-field,
+      input[type="date"]::-webkit-datetime-edit,
+      input[type="month"]::-webkit-datetime-edit {
+        color: rgb(var(--ink));
+      }
+
       input[type="number"]::-webkit-outer-spin-button,
       input[type="number"]::-webkit-inner-spin-button {
         -webkit-appearance: none; margin: 0;

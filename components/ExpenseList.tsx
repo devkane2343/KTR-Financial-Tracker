@@ -6,6 +6,7 @@ import { CATEGORIES } from '../constants';
 import { formatCurrency, formatDateString, isSavingsCategory, isSyntheticSavingsRow } from '../lib/utils';
 import { Trash2, Search, ChevronLeft, ChevronRight, Pencil, CalendarDays, PieChart as PieIcon, Receipt } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme';
+import { Select } from './UI/Select';
 
 const formatMonthLabel = (yyyyMM: string) => {
   const [y, m] = yyyyMM.split('-').map(Number);
@@ -132,27 +133,27 @@ export const ExpenseList: React.FC<ExpenseListProps> = ({ expenses, onDelete, on
             />
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <div className="relative">
-              <CalendarDays className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-whisper pointer-events-none" />
-              <select
-                value={filterMonth}
-                onChange={(e) => { setFilterMonth(e.target.value); setCurrentPage(1); }}
-                className={`w-full pl-9 pr-3 py-2 text-sm bg-paper dark:bg-paper text-ink dark:text-ink border rounded-lg focus:border-ink/30 focus:ring-2 focus:ring-ink/5 outline-none transition-all ${filterMonth !== 'All' ? 'border-ink/30' : 'border-rule'}`}
-              >
-                <option value="All">All months</option>
-                {availableMonths.map(m => (
-                  <option key={m} value={m}>{formatMonthLabel(m)}</option>
-                ))}
-              </select>
-            </div>
-            <select
+            <Select
+              aria-label="Filter by month"
+              value={filterMonth}
+              onChange={(v) => { setFilterMonth(v); setCurrentPage(1); }}
+              className={filterMonth !== 'All' ? '!border-ink/30' : ''}
+              leadingIcon={<CalendarDays className="w-3.5 h-3.5 shrink-0 text-ink-whisper" />}
+              options={[
+                { value: 'All', label: 'All months' },
+                ...availableMonths.map(m => ({ value: m, label: formatMonthLabel(m) })),
+              ]}
+            />
+            <Select
+              aria-label="Filter by category"
               value={filterCategory}
-              onChange={(e) => { setFilterCategory(e.target.value); setCurrentPage(1); }}
-              className={`px-3 py-2 text-sm bg-paper dark:bg-paper text-ink dark:text-ink border rounded-lg focus:border-ink/30 focus:ring-2 focus:ring-ink/5 outline-none transition-all ${filterCategory !== 'All' ? 'border-ink/30' : 'border-rule'}`}
-            >
-              <option value="All">All categories</option>
-              {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-            </select>
+              onChange={(v) => { setFilterCategory(v); setCurrentPage(1); }}
+              className={filterCategory !== 'All' ? '!border-ink/30' : ''}
+              options={[
+                { value: 'All', label: 'All categories' },
+                ...CATEGORIES.map(cat => ({ value: cat, label: cat })),
+              ]}
+            />
           </div>
         </div>
       </div>

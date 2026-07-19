@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Bill, BillCategory } from '../types';
 import { generateId, getLocalDateString } from '../lib/utils';
 import { PlusCircle, Save, X, Calendar, Hash } from 'lucide-react';
+import { Select } from './UI/Select';
 
 interface BillFormProps {
   onAdd: (bill: Bill) => void;
@@ -101,15 +102,12 @@ export const BillForm: React.FC<BillFormProps> = ({ onAdd, onUpdate, editingBill
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className={labelClass}>Category</label>
-            <select
+            <Select
+              aria-label="Category"
               value={category}
-              onChange={(e) => setCategory(e.target.value as BillCategory)}
-              className={inputClass}
-            >
-              {CATEGORIES.map(c => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
+              onChange={(v) => setCategory(v as BillCategory)}
+              options={CATEGORIES.map(c => ({ value: c, label: c }))}
+            />
           </div>
           <div>
             <label className={labelClass}>Amount</label>

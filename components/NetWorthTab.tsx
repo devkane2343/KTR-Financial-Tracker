@@ -17,17 +17,20 @@ import {
 import { loadValueHistory, appendValueSnapshot, type ValueSnapshot } from '../lib/investmentHistoryStore';
 import {
   projectMp2,
-  rateForYear,
+  summarizeMp2Contributions,
   MP2_TERM_YEARS,
   MP2_MIN_CONTRIBUTION,
   MP2_LATEST_RATE_PCT,
   MP2_HISTORICAL_RATES,
   type Mp2PayoutMode,
   type Mp2YearRow,
+  type Mp2ContributionPoint,
 } from '../lib/mp2Projection';
+import { loadMp2ProjectionSettings, saveMp2ProjectionSettings } from '../lib/mp2ProjectionStore';
 import { useModal } from '../lib/useModal';
 import { ModalPortal } from './ModalPortal';
-import { Wallet, PiggyBank, Shield, Landmark, Coins, CreditCard, Check, Pencil, X, Banknote, Receipt, ChevronLeft, ChevronRight, Plus, Trash2, ImagePlus, Loader2, ArrowDownRight, ArrowRightLeft, ArrowRight, TrendingUp, TrendingDown, LineChart, Sparkles, Sprout, Lock, Info, RotateCcw } from 'lucide-react';
+import { Wallet, PiggyBank, Shield, Landmark, Coins, CreditCard, Check, Pencil, X, Banknote, Receipt, ChevronLeft, ChevronRight, Plus, Trash2, ImagePlus, Loader2, ArrowDownRight, ArrowRightLeft, ArrowRight, TrendingUp, TrendingDown, LineChart, Sparkles, Sprout, Lock, Info, RotateCcw, Save, History } from 'lucide-react';
+import { Select } from './UI/Select';
 
 /**
  * Growth of an investment/VUL card: current fund value vs what was paid in.
@@ -189,34 +192,9 @@ const GoTymeCard: React.FC<{ className?: string }> = ({ className }) => {
   );
 };
 
-/**
- * MariBank debit card artwork — orange field with the "M" roundel, Mastercard
- * dual-circle, the little smile, and the "MariBank" wordmark over a swoosh.
- * Recreated as an inline SVG (the app blocks remote images). Used full-bleed as
- * a low-opacity background behind the Debit Card.
- */
+// Debit-card accent (used by the net-worth breakdown legend). The MariBank card
+// artwork that used to back the Debit Card was removed per request.
 const MARI_ORANGE = '#f26a21';
-const MARI_CREAM = '#fdf1e7';
-const MariBankCard: React.FC<{ className?: string }> = ({ className }) => (
-  <svg viewBox="0 0 1280 800" preserveAspectRatio="xMidYMid meet" className={className} aria-hidden="true">
-    <rect width="1280" height="800" rx="48" fill={MARI_ORANGE} />
-    {/* "M" roundel (top-left) */}
-    <circle cx="150" cy="120" r="60" fill="none" stroke={MARI_CREAM} strokeWidth="10" />
-    <path d="M120 148 L120 96 L150 132 L180 96 L180 148" fill="none" stroke={MARI_CREAM} strokeWidth="12" strokeLinejoin="round" strokeLinecap="round" />
-    <path d="M110 158 q40 22 80 0" fill="none" stroke={MARI_CREAM} strokeWidth="7" strokeLinecap="round" />
-    {/* Mastercard dual circles (top-right) */}
-    <circle cx="1090" cy="120" r="52" fill="#e0322f" />
-    <circle cx="1160" cy="120" r="52" fill="#f6a417" opacity="0.9" />
-    {/* Smile (upper-middle) */}
-    <path d="M690 250 q60 60 130 10" fill="none" stroke={MARI_CREAM} strokeWidth="12" strokeLinecap="round" />
-    <circle cx="700" cy="230" r="8" fill={MARI_CREAM} />
-    {/* MariBank wordmark */}
-    <text x="70" y="540" fontFamily="Arial, sans-serif" fontWeight="800" fontSize="200" fill={MARI_CREAM} letterSpacing="-4">MariBank</text>
-    {/* Underline swoosh */}
-    <path d="M90 610 q400 -70 900 10" fill="none" stroke={MARI_CREAM} strokeWidth="12" strokeLinecap="round" opacity="0.8" />
-    <path d="M150 640 q380 -50 760 20" fill="none" stroke={MARI_CREAM} strokeWidth="7" strokeLinecap="round" opacity="0.5" />
-  </svg>
-);
 
 /**
  * Small inline flag SVGs (the app blocks remote images). Rounded corners + a
@@ -440,13 +418,54 @@ const Mp2GrowthBars: React.FC<{ rows: Mp2YearRow[]; className?: string }> = ({ r
 interface Mp2ProjectionPanelProps {
   /** Current MP2 savings (tagged contributions) — the projection's opening balance. */
   openingBalance: number;
+  /** The user's actual dated MP2 contributions — used to reconcile the monthly figure. */
+  contributions: Mp2ContributionPoint[];
 }
 
-const Mp2ProjectionPanel: React.FC<Mp2ProjectionPanelProps> = ({ openingBalance }) => {
+const Mp2ProjectionPanel: React.FC<Mp2ProjectionPanelProps> = ({ openingBalance, contributions }) => {
   // Projection starts this calendar year. Years run startYear … startYear+4.
   const startYear = useMemo(() => new Date().getFullYear(), []);
-  const [monthly, setMonthly] = useState<string>(String(MP2_MIN_CONTRIBUTION));
+
+  // Reconcile with real data: derive the paid-months grid, the opening lump, and
+  // a recurring cadence from the user's actual MP2 payments (service charges
+  // netted out). See summarizeMp2Contributions.
+  const history = useMemo(() => summarizeMp2Contributions(contributions), [contributions]);
+
+  // A SUGGESTED recurring monthly, excluding the one-time opening lump (largest
+  // month) so a big initial deposit doesn't inflate it. This is only a starting
+  // hint — the monthly field is the user's to set (MP2 remittances are ad-hoc).
+  // Averages the non-lump months; if only the lump exists, the ₱500 minimum.
+  const derivedMonthly = useMemo(() => {
+    if (!history.hasHistory) return MP2_MIN_CONTRIBUTION;
+    const recurring = history.monthlyPayments.filter(p => p.monthKey !== history.largestMonth?.monthKey);
+    if (recurring.length > 0) {
+      return Math.max(Math.round(recurring.reduce((s, p) => s + p.amount, 0) / recurring.length), 0);
+    }
+    return MP2_MIN_CONTRIBUTION;
+  }, [history]);
+  // Distinct calendar months with a non-lump payment — used to word the recurring
+  // hint honestly (one month of ad-hoc top-ups ≠ a proven monthly cadence).
+  const recurringMonthCount = history.hasHistory
+    ? history.monthlyPayments.filter(p => p.monthKey !== history.largestMonth?.monthKey).length
+    : 0;
+
+  // Opening balance for the projection = the TRUE current MP2 balance, fee-clean.
+  // `openingBalance` is the real card balance (contributions − withdrawals);
+  // subtracting the service charge we stripped from the contribution rows gives a
+  // figure that (a) reflects withdrawals and (b) drops the ₱14-type fee. Floored
+  // at 0. Using totalIn here instead would wrongly ignore withdrawals.
+  const projectionOpening = Math.max(0, openingBalance - history.serviceChargeStripped);
+
+  // Starts empty; the load effect sets it once we know whether a saved row exists
+  // (saved value if so, else the derived-from-history default). Seeding it from
+  // `derivedMonthly` here would freeze the first-render value even if the real
+  // contribution history changes before the user has saved. `userTouched` stops
+  // the derived default from stomping a value the user has typed.
+  const [monthly, setMonthly] = useState<string>('');
   const [mode, setMode] = useState<Mp2PayoutMode>('compounded');
+  // True once the user edits monthly (or the load effect applied a saved value),
+  // so later history-driven changes don't overwrite an intentional value.
+  const monthlyTouched = useRef(false);
   // Per-year assumed rate (%). Prefilled to the latest declared rate for all 5
   // years; each year individually editable. Kept as strings so a half-typed
   // value (e.g. "7.") doesn't snap to a number mid-edit.
@@ -454,34 +473,100 @@ const Mp2ProjectionPanel: React.FC<Mp2ProjectionPanelProps> = ({ openingBalance 
     Array.from({ length: MP2_TERM_YEARS }, () => String(MP2_LATEST_RATE_PCT)),
   );
 
+  // Load saved settings on open. If a saved row exists it overrides the derived
+  // defaults; if not (or the table isn't migrated yet), we keep the derived
+  // monthly + prefilled rates. `settingsLoaded` gates the Save button so we
+  // don't flash it before we know the starting state.
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [saveError, setSaveError] = useState('');
+  const savingRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadMp2ProjectionSettings().then(res => {
+      if (cancelled) return;
+      if (res.ok && res.value) {
+        // A saved row wins over the derived default; treat it as user-owned so
+        // history changes don't overwrite it.
+        setMonthly(String(res.value.monthlyContribution));
+        setMode(res.value.mode);
+        setRates(res.value.ratesPct.map(r => String(r)));
+        monthlyTouched.current = true;
+      } else if (!monthlyTouched.current) {
+        // No saved settings — start from the history-derived monthly.
+        setMonthly(String(derivedMonthly));
+      }
+      setSettingsLoaded(true);
+    });
+    return () => { cancelled = true; };
+    // Intentionally mount-only: initial load. The sync effect below keeps the
+    // derived default fresh afterward while the field is untouched.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // While the field is still the derived default (user hasn't touched it and no
+  // saved row applied), keep it in sync if the real contribution history changes
+  // under us — so the input never disagrees with the reconciliation card.
+  useEffect(() => {
+    if (settingsLoaded && !monthlyTouched.current) setMonthly(String(derivedMonthly));
+  }, [derivedMonthly, settingsLoaded]);
+
   const monthlyNum = parseFloat(monthly);
   const ratesNum = rates.map(r => parseFloat(r));
 
   const projection = useMemo(
     () => projectMp2({
-      openingBalance,
+      openingBalance: projectionOpening,
       monthlyContribution: Number.isFinite(monthlyNum) ? monthlyNum : 0,
       startYear,
       ratesPct: ratesNum.map(r => (Number.isFinite(r) ? r : 0)),
       mode,
     }),
-    // ratesNum/ratesNum are fresh arrays each render; depend on the string form.
-    [openingBalance, monthlyNum, startYear, rates, mode],
+    // ratesNum is a fresh array each render; depend on the string form instead.
+    [projectionOpening, monthlyNum, startYear, rates, mode],
   );
 
-  const setRate = (i: number, v: string) =>
+  const setRate = (i: number, v: string) => {
     setRates(prev => prev.map((r, idx) => (idx === i ? v : r)));
+    setSaveStatus('idle');
+  };
 
   // "Set all years to this rate" from the first year's value — a quick way to
   // apply one assumption across the whole term after editing year 1.
-  const applyFirstToAll = () =>
+  const applyFirstToAll = () => {
     setRates(prev => prev.map(() => prev[0]));
+    setSaveStatus('idle');
+  };
 
-  const resetRates = () =>
+  const resetRates = () => {
     setRates(Array.from({ length: MP2_TERM_YEARS }, () => String(MP2_LATEST_RATE_PCT)));
+    setSaveStatus('idle');
+  };
+
+  // Snap the monthly figure back to the average from real contribution history.
+  const useDerivedMonthly = () => { setMonthly(String(derivedMonthly)); setSaveStatus('idle'); };
+
+  const save = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaveStatus('saving'); setSaveError('');
+    const res = await saveMp2ProjectionSettings({
+      monthlyContribution: Number.isFinite(monthlyNum) ? monthlyNum : 0,
+      mode,
+      ratesPct: ratesNum.map(r => (Number.isFinite(r) ? r : 0)),
+    });
+    savingRef.current = false;
+    if (res.ok) { setSaveStatus('saved'); setTimeout(() => setSaveStatus(s => (s === 'saved' ? 'idle' : s)), 2500); }
+    else { setSaveStatus('error'); setSaveError(res.error); }
+  };
 
   const monthlyInvalid = !Number.isFinite(monthlyNum) || monthlyNum < 0;
   const belowMin = Number.isFinite(monthlyNum) && monthlyNum > 0 && monthlyNum < MP2_MIN_CONTRIBUTION;
+  // Does the typed monthly match the user's real cadence? Only meaningful when
+  // there's actual history (else `derivedMonthly` is just the ₱500 fallback).
+  const monthlyMatchesHistory =
+    history.hasHistory && Number.isFinite(monthlyNum) && Math.round(monthlyNum) === Math.round(derivedMonthly);
 
   const maturityYear = startYear + MP2_TERM_YEARS - 1;
   const growthPct = projection.totalContributed > 0
@@ -543,9 +628,11 @@ const Mp2ProjectionPanel: React.FC<Mp2ProjectionPanelProps> = ({ openingBalance 
           <span className="text-xs font-medium text-ink-soft">Starting balance</span>
           <div className={`mt-1 flex items-baseline gap-1.5 px-3 py-2.5 ${inputBox} opacity-80`}>
             <span className="text-ink-muted font-mono text-lg">₱</span>
-            <span className="num text-xl text-ink font-semibold">{formatCurrency(openingBalance).replace('₱', '')}</span>
+            <span className="num text-xl text-ink font-semibold">{formatCurrency(projectionOpening).replace('₱', '')}</span>
           </div>
-          <p className="text-[10px] text-ink-muted mt-1">Your MP2 savings so far (opening balance).</p>
+          <p className="text-[10px] text-ink-muted mt-1">
+            {history.hasHistory ? 'Your MP2 savings so far (service charges netted out).' : 'Your MP2 savings so far (opening balance).'}
+          </p>
         </div>
         <label className="block">
           <span className="text-xs font-medium text-ink-soft">Monthly contribution</span>
@@ -554,7 +641,7 @@ const Mp2ProjectionPanel: React.FC<Mp2ProjectionPanelProps> = ({ openingBalance 
             <input
               type="number" step="100" min="0" inputMode="decimal"
               value={monthly}
-              onChange={(e) => setMonthly(e.target.value)}
+              onChange={(e) => { monthlyTouched.current = true; setMonthly(e.target.value); setSaveStatus('idle'); }}
               placeholder="500"
               className="flex-1 min-w-0 bg-transparent border-0 outline-none num text-xl text-ink font-semibold placeholder:text-ink-whisper"
             />
@@ -564,6 +651,112 @@ const Mp2ProjectionPanel: React.FC<Mp2ProjectionPanelProps> = ({ openingBalance 
           </p>
         </label>
       </div>
+
+      {/* From your real MP2 payments — auto-derived. Shows the opening lump vs your
+          recurring cadence (so the monthly isn't inflated by the big deposit), an
+          auto months-paid grid, and a per-month breakdown. Updates automatically
+          whenever you log a new MP2 payment (it's read live from your expenses). */}
+      {history.hasHistory && (
+        <div className="rounded-xl border border-rule bg-paper-soft/40 p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="shrink-0 w-7 h-7 rounded-md bg-jade-50 text-jade-600 dark:bg-jade-900/40 dark:text-jade-400 flex items-center justify-center">
+              <History className="w-4 h-4" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-ink">From your actual MP2 payments</p>
+              <p className="text-[10px] text-ink-muted">Auto-calculated from what you've logged · service charges netted out.</p>
+            </div>
+          </div>
+
+          {/* Opening lump vs recurring cadence */}
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-lg border border-rule bg-paper px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wider text-ink-muted">Opening lump</p>
+              <p className="num text-sm font-semibold text-ink mt-0.5">
+                {history.largestMonth ? formatCurrency(history.largestMonth.amount) : '—'}
+              </p>
+              <p className="text-[10px] text-ink-muted">
+                {history.largestMonth ? `${MONTH_LABELS[history.largestMonth.month - 1]} ${history.largestMonth.year}` : ''}
+              </p>
+            </div>
+            <div className="rounded-lg border border-rule bg-paper px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wider text-ink-muted">Suggested / mo</p>
+              <p className="num text-sm font-semibold text-ink mt-0.5">{formatCurrency(derivedMonthly)}</p>
+              <p className="text-[10px] text-ink-muted">
+                {recurringMonthCount >= 2
+                  ? 'avg of your non-lump months'
+                  : recurringMonthCount === 1
+                    ? 'from one month of top-ups — set your own'
+                    : 'MP2 minimum (no cadence yet)'}
+              </p>
+            </div>
+          </div>
+
+          {/* Suggest the derived monthly for the field — it's a hint, not a claim
+              of a proven cadence (MP2 remittances are flexible), so the wording
+              stays soft and the monthly stays the user's to set. */}
+          {!monthlyMatchesHistory ? (
+            <button
+              type="button"
+              onClick={useDerivedMonthly}
+              className="text-[11px] font-medium text-jade-700 dark:text-jade-400 hover:underline inline-flex items-center gap-1"
+            >
+              <ArrowDownRight className="w-3 h-3" /> Use {formatCurrency(derivedMonthly)}/mo as a starting point
+            </button>
+          ) : (
+            <p className="text-[11px] text-jade-700 dark:text-jade-400 inline-flex items-center gap-1">
+              <Check className="w-3 h-3" /> Monthly set to your suggested figure.
+            </p>
+          )}
+
+          {/* Auto months-paid grid — every month you actually paid is marked. */}
+          {Object.keys(history.paidMonths).sort().map(yr => {
+            const paid = new Set(history.paidMonths[yr]);
+            return (
+              <div key={yr}>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-[10px] uppercase tracking-wider text-ink-muted font-medium">Months paid · {yr}</p>
+                  <p className="text-[10px] text-ink-muted"><span className="font-semibold text-ink">{paid.size}</span>/12</p>
+                </div>
+                <div className="grid grid-cols-6 gap-1">
+                  {MONTH_LABELS.map((label, i) => {
+                    const isPaid = paid.has(i + 1);
+                    return (
+                      <span
+                        key={i}
+                        title={`${label} ${yr}: ${isPaid ? 'paid' : 'not paid'}`}
+                        className={`text-[9px] font-medium text-center py-1 rounded ${
+                          isPaid ? 'bg-jade-500 text-white dark:bg-jade-600' : 'bg-paper text-ink-muted border border-rule'
+                        }`}
+                      >
+                        {label[0]}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Per-month payment breakdown. */}
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-ink-muted font-medium mb-1">Payments</p>
+            <ul className="space-y-0.5">
+              {history.monthlyPayments.map(p => (
+                <li key={p.monthKey} className="flex items-center justify-between text-[11px]">
+                  <span className="text-ink-soft">
+                    {MONTH_LABELS[p.month - 1]} {p.year}
+                    {history.largestMonth?.monthKey === p.monthKey && (
+                      <span className="ml-1.5 text-[9px] px-1.5 py-0.5 rounded-full bg-paper text-ink-soft border border-rule">opening</span>
+                    )}
+                  </span>
+                  <span className="num font-semibold text-ink tabular-nums">{formatCurrency(p.amount)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
 
       {/* Payout mode toggle — compounded vs annual dividend payout. */}
       <div>
@@ -576,7 +769,7 @@ const Mp2ProjectionPanel: React.FC<Mp2ProjectionPanelProps> = ({ openingBalance 
             <button
               key={opt.key}
               type="button"
-              onClick={() => setMode(opt.key)}
+              onClick={() => { setMode(opt.key); setSaveStatus('idle'); }}
               aria-pressed={mode === opt.key}
               className={`px-3 py-2 rounded-lg text-sm font-medium border transition-colors text-left ${
                 mode === opt.key ? 'bg-ink text-paper border-ink' : 'bg-paper-soft/60 text-ink-soft border-rule hover:border-ink/30'
@@ -668,6 +861,33 @@ const Mp2ProjectionPanel: React.FC<Mp2ProjectionPanelProps> = ({ openingBalance 
         </div>
         {mode === 'annual' && (
           <p className="text-[10px] text-ink-muted mt-1.5">Under annual payout, each year's dividend is paid to you in cash, so the balance grows only from your contributions.</p>
+        )}
+      </div>
+
+      {/* Save footer — persists these assumptions so they come back next time.
+          Sticks to the bottom of the scrollable panel so it's always reachable. */}
+      <div className="sticky bottom-0 -mx-4 sm:-mx-5 -mb-4 sm:-mb-5 px-4 sm:px-5 py-3 bg-paper/95 backdrop-blur border-t border-rule flex items-center gap-3">
+        <button
+          type="button"
+          onClick={save}
+          disabled={!settingsLoaded || saveStatus === 'saving' || monthlyInvalid}
+          className="inline-flex items-center gap-1.5 bg-jade-600 hover:bg-jade-500 text-white px-4 py-2 rounded-lg text-sm font-semibold shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed dark:bg-jade-500 dark:hover:bg-jade-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-jade-400/70"
+        >
+          {saveStatus === 'saving'
+            ? <Loader2 className="w-4 h-4 animate-spin" />
+            : saveStatus === 'saved'
+              ? <Check className="w-4 h-4" />
+              : <Save className="w-4 h-4" />}
+          <span>{saveStatus === 'saved' ? 'Saved' : 'Save projection'}</span>
+        </button>
+        {saveStatus === 'saved' && (
+          <span className="text-[11px] text-jade-600 dark:text-jade-400">Your assumptions are saved.</span>
+        )}
+        {saveStatus === 'error' && saveError && (
+          <span className="text-[11px] text-coral-600 leading-snug">{saveError}</span>
+        )}
+        {saveStatus !== 'saved' && saveStatus !== 'error' && (
+          <span className="text-[11px] text-ink-muted">Remembers your monthly, mode &amp; rates.</span>
         )}
       </div>
     </div>
@@ -773,7 +993,10 @@ const SavingsDetailModal: React.FC<SavingsDetailModalProps> = ({ bucket, title, 
         {/* Projection tab (MP2 only) */}
         {onProjection ? (
           <div className="overflow-y-auto flex-1" role="tabpanel">
-            <Mp2ProjectionPanel openingBalance={mp2Balance!} />
+            <Mp2ProjectionPanel
+              openingBalance={mp2Balance!}
+              contributions={contributions.map(c => ({ date: c.date, amount: c.amount }))}
+            />
           </div>
         ) : (
         <>
@@ -1703,19 +1926,27 @@ const TransferModal: React.FC<TransferModalProps> = ({ pots, fromPots, onClose, 
         <div className="p-5 space-y-4">
           {/* From → To */}
           <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-2">
-            <label className="block min-w-0">
+            <div className="block min-w-0">
               <span className="text-xs font-medium text-ink-soft">From</span>
-              <select value={fromKey} onChange={(e) => setFromKey(e.target.value)} className={`${inputClass} mt-1`}>
-                {fromPots.map(p => <option key={p.key} value={p.key}>{p.source.label}</option>)}
-              </select>
-            </label>
+              <Select
+                aria-label="Transfer from"
+                value={fromKey}
+                onChange={setFromKey}
+                className="!bg-paper-soft/60 !py-2.5 mt-1"
+                options={fromPots.map(p => ({ value: p.key, label: p.source.label }))}
+              />
+            </div>
             <span className="pb-2.5 text-ink-muted"><ArrowRight className="w-4 h-4" /></span>
-            <label className="block min-w-0">
+            <div className="block min-w-0">
               <span className="text-xs font-medium text-ink-soft">To</span>
-              <select value={toKey} onChange={(e) => setToKey(e.target.value)} className={`${inputClass} mt-1`}>
-                {pots.map(p => <option key={p.key} value={p.key}>{p.source.label}</option>)}
-              </select>
-            </label>
+              <Select
+                aria-label="Transfer to"
+                value={toKey}
+                onChange={setToKey}
+                className="!bg-paper-soft/60 !py-2.5 mt-1"
+                options={pots.map(p => ({ value: p.key, label: p.source.label }))}
+              />
+            </div>
           </div>
           {from && (
             <p className="text-[11px] text-ink-muted -mt-1.5">
@@ -1943,11 +2174,14 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data, active = true, p
           {onTransfer && pots.length >= 2 && (
             <button
               onClick={() => setTransferOpen(true)}
-              className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors shrink-0
-                         border-ink/15 text-ink-soft hover:text-ink hover:bg-ink/5
-                         dark:border-white/20 dark:text-white/70 dark:hover:text-white dark:hover:bg-white/10"
+              className="group inline-flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-lg shrink-0
+                         text-white shadow-sm ring-1 transition-all duration-200 hover:-translate-y-0.5
+                         bg-jade-600 hover:bg-jade-500 ring-jade-700/30 shadow-jade-900/20
+                         hover:shadow-md hover:shadow-jade-900/25
+                         dark:bg-jade-500 dark:hover:bg-jade-400 dark:ring-jade-300/30
+                         focus:outline-none focus-visible:ring-2 focus-visible:ring-jade-400/70"
             >
-              <ArrowRightLeft className="w-3.5 h-3.5" /> Move money
+              <ArrowRightLeft className="w-3.5 h-3.5 transition-transform group-hover:rotate-180 duration-300" /> Move money
             </button>
           )}
         </div>
@@ -2028,7 +2262,6 @@ export const NetWorthTab: React.FC<NetWorthTabProps> = ({ data, active = true, p
           loaded={balancesLoaded}
           onSaved={handleBalanceSaved}
           badge={<LiquidityBadge liquidity="liquid" />}
-          background={<MariBankCard className="absolute inset-0 w-full h-full opacity-[0.14] dark:opacity-20 pointer-events-none" />}
         />
       </div>
 

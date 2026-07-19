@@ -50,7 +50,20 @@
       "Bash(until [ -f \"C:/Users/Kane/.claude/projects/c--Users-Kane-Desktop-KTR-Financial-Tracker/a5b2ab35-dedf-400b-b59a-7062483eec14/subagents/workflows/wf_149a0cf1-353/journal.jsonl\" ] && grep -q '\"type\":\"workflow-complete\"\\\\|verify:rates' \"C:/Users/Kane/.claude/projects/c--Users-Kane-Desktop-KTR-Financial-Tracker/a5b2ab35-dedf-400b-b59a-7062483eec14/subagents/workflows/wf_149a0cf1-353/journal.jsonl\" 2>/dev/null; do sleep 10; done; echo \"done\")",
       "Read(//c/Users/Kane/.claude/projects/c--Users-Kane-Desktop-KTR-Financial-Tracker/a5b2ab35-dedf-400b-b59a-7062483eec14/subagents/workflows/wf_149a0cf1-353/**)",
       "WebFetch(domain:www.gmanetwork.com)",
-      "Bash([ -f \"$f\" ])"
+      "Bash([ -f \"$f\" ])",
+      "Bash(cat)",
+      "Bash(node /tmp/mp2fee.mjs)",
+      "Bash(node /tmp/mp2fee2.mjs)",
+      "Bash(node /tmp/mp2fee3.mjs)",
+      "Bash(node -e \"console.log\\(require\\('playwright'\\)?'playwright-yes':'no'\\)\")",
+      "Read(//c/Program Files/Google/Chrome/Application/**)",
+      "Bash(npm ls *)",
+      "Bash(node -e \"console.log\\(process.version\\); console.log\\(typeof fetch, typeof WebSocket\\)\")",
+      "Bash(\"C:/Program Files/Google/Chrome/Application/chrome.exe\" --headless=new --disable-gpu --hide-scrollbars --force-device-scale-factor=2 --window-size=520,760 --screenshot=\"shot.png\" --virtual-time-budget=3000 \"file:///C:/Users/Kane/AppData/Local/Temp/claude/c--Users-Kane-Desktop-KTR-Financial-Tracker/71a8e10c-8ba6-4412-84d3-2eb87ff20da1/scratchpad/harness.html\")",
+      "Bash(rm -f \"C:/Users/Kane/AppData/Local/Temp/claude_shot_1360.png\" \"C:/Users/Kane/AppData/Local/Temp/claude_shot2_1397.png\" \"C:/Users/Kane/AppData/Local/Temp/claude_shot3_1634.png\" 2>/dev/null; echo cleaned)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\Kane\\AppData\\Local\\Temp"
     ]
   }
 }

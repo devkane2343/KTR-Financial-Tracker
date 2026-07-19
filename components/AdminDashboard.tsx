@@ -48,6 +48,7 @@ import {
 import { Portfolio, FinancialData } from '../types';
 import { Briefcase, Target, CheckCircle2, Clock as ClockIcon } from 'lucide-react';
 import { ModalShell } from './ModalShell';
+import { Select } from './UI/Select';
 
 type SortField = 'email' | 'created_at' | 'total_income' | 'total_expenses' | 'last_sign_in_at';
 type SortDirection = 'asc' | 'desc';
@@ -494,18 +495,19 @@ export const AdminDashboard: React.FC = () => {
             />
           </div>
 
-          <div className="relative">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-whisper" />
-            <select
+          <div className="w-44">
+            <Select
+              aria-label="Filter by status"
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
-              className="pl-9 pr-8 py-2 text-sm bg-paper border border-rule rounded-lg focus:border-ink/30 focus:ring-2 focus:ring-ink/5 outline-none text-ink appearance-none cursor-pointer"
-            >
-              <option value="all">All Status</option>
-              <option value="active">Active</option>
-              <option value="suspended">Suspended</option>
-              <option value="deleted">Deleted</option>
-            </select>
+              onChange={(v) => setStatusFilter(v as any)}
+              leadingIcon={<Filter className="w-4 h-4 shrink-0 text-ink-whisper" />}
+              options={[
+                { value: 'all', label: 'All Status' },
+                { value: 'active', label: 'Active' },
+                { value: 'suspended', label: 'Suspended' },
+                { value: 'deleted', label: 'Deleted' },
+              ]}
+            />
           </div>
         </div>
 

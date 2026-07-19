@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { FinancialData, IncomeEntry, Expense, Bill, BillPayment, TabType, PayResult } from './types';
-import { addMonths, generateId, isBillPaidOff, withBillExpenses } from './lib/utils';
+import { addMonths, generateId, getPaycheckTakeHome, isBillPaidOff, withBillExpenses } from './lib/utils';
 import { SummaryCards } from './components/SummaryCards';
 import { IncomeForm } from './components/IncomeForm';
 import { IncomeList } from './components/IncomeList';
@@ -46,6 +46,7 @@ import { getProfilePictureUrl } from './lib/profilePicture';
 import { isUserAdmin } from './lib/adminUtils';
 import { usePrivacyNotice } from './hooks/usePrivacyNotice';
 import { useFundingSources } from './lib/useFundingSources';
+import { backfillDebitFromPaychecks } from './lib/walletStore';
 
 const LOGO_URL = '/logo.png';
 
@@ -90,11 +91,13 @@ const App: React.FC = () => {
 
   // Liquid pots an expense can be funded from (Wallet, Debit, liquid savings,
   // liquid custom cards), plus the apply/reverse side-effects that deduct them.
-  const { fundingSources, allPots, applySource, reverseSource, buildWithdrawalRow, transfer } = useFundingSources(
+  const { fundingSources, allPots, applySource, reverseSource, depositToDebit, withdrawFromDebit, buildWithdrawalRow, transfer } = useFundingSources(
     data.incomeHistory,
     data.expenses,
     // Re-pull balances whenever the user is on a tab that reads/moves them.
-    activeTab === 'expenses' || activeTab === 'networth',
+    // Income is included because logging a paycheck deposits its take-home to the
+    // Debit balance — that needs the freshest stored value to add onto.
+    activeTab === 'expenses' || activeTab === 'networth' || activeTab === 'income',
   );
 
   const dataRef = useRef(data);
@@ -238,6 +241,20 @@ const App: React.FC = () => {
       if (cancelled) return;
       if (result.ok) setData(result.data);
       setIsLoaded(true);
+
+      // One-time reconciliation: paychecks logged before "salary lands on the
+      // Debit Card" never credited Debit, so add their total take-home once.
+      // Guarded server-side (debit_backfilled_at), so this is a no-op every load
+      // after the first — safe to fire on every startup.
+      if (result.ok) {
+        const takeHomeTotal = result.data.incomeHistory.reduce((s, inc) => s + getPaycheckTakeHome(inc), 0);
+        backfillDebitFromPaychecks(takeHomeTotal).then((res) => {
+          if (!res.ok) {
+            setSaveStatus('error');
+            setSaveError(res.error ?? 'Failed to reconcile past paychecks to the Debit Card.');
+          }
+        });
+      }
     })();
     return () => { cancelled = true; };
   }, [authChecked, userId]);
@@ -268,6 +285,15 @@ const App: React.FC = () => {
     return { bills: updatedBills, payments: [...newPayments, ...payments] };
   };
 
+  // Surface a deduction/refund failure without blocking the edit itself. Shared
+  // by the income (Debit reconcile) and expense (funding source) handlers.
+  const reportSourceError = useCallback((res: { ok: boolean; error?: string }) => {
+    if (!res.ok) {
+      setSaveStatus('error');
+      setSaveError(res.error ?? 'Failed to update the funding source balance.');
+    }
+  }, []);
+
   const handleAddIncome = useCallback((income: IncomeEntry) => {
     setData(prev => {
       const { bills, payments } = applyPaidBillsToBills(prev.bills, prev.billPayments, income.paidBills, income.date);
@@ -278,10 +304,16 @@ const App: React.FC = () => {
         billPayments: payments,
       };
     });
+    // Salary lands on the Debit Card: credit this paycheck's take-home there.
+    depositToDebit(getPaycheckTakeHome(income)).then(reportSourceError);
     scheduleAutoSave();
-  }, [scheduleAutoSave]);
+  }, [scheduleAutoSave, depositToDebit, reportSourceError]);
 
   const handleUpdateIncome = useCallback((income: IncomeEntry) => {
+    // Reconcile the Debit balance by the change in take-home. Captured from the
+    // current render's history (edits are user-initiated, so this is fresh).
+    const previousEntry = data.incomeHistory.find(item => item.id === income.id);
+    const oldTakeHome = previousEntry ? getPaycheckTakeHome(previousEntry) : 0;
     setData(prev => {
       // Only apply bills that are newly checked on this edit. Re-applying the
       // full paidBills list would re-pay (and over-advance) bills this entry
@@ -298,13 +330,20 @@ const App: React.FC = () => {
         billPayments: payments,
       };
     });
+    // Apply only the delta so the Debit balance tracks the edited take-home.
+    const delta = getPaycheckTakeHome(income) - oldTakeHome;
+    if (delta > 0) depositToDebit(delta).then(reportSourceError);
+    else if (delta < 0) withdrawFromDebit(-delta).then(reportSourceError);
     setEditingIncome(null);
     scheduleAutoSave();
-  }, [scheduleAutoSave]);
+  }, [data.incomeHistory, scheduleAutoSave, depositToDebit, withdrawFromDebit, reportSourceError]);
 
   const handleDeleteIncome = useCallback((id: string) => {
+    // Reverse the take-home this paycheck deposited on the Debit Card.
+    const removed = data.incomeHistory.find(i => i.id === id);
     setEditingIncome(prev => prev?.id === id ? null : prev);
     setData(prev => ({ ...prev, incomeHistory: prev.incomeHistory.filter(i => i.id !== id) }));
+    if (removed) withdrawFromDebit(getPaycheckTakeHome(removed)).then(reportSourceError);
     // Autosave only upserts, so we must explicitly delete the row from
     // Supabase — otherwise it reappears on the next load/refresh.
     deleteIncomeFromSupabase(id).then((res) => {
@@ -314,15 +353,7 @@ const App: React.FC = () => {
       }
     });
     scheduleAutoSave();
-  }, [scheduleAutoSave]);
-
-  // Surface a deduction/refund failure without blocking the expense edit itself.
-  const reportSourceError = useCallback((res: { ok: boolean; error?: string }) => {
-    if (!res.ok) {
-      setSaveStatus('error');
-      setSaveError(res.error ?? 'Failed to update the funding source balance.');
-    }
-  }, []);
+  }, [data.incomeHistory, scheduleAutoSave, withdrawFromDebit, reportSourceError]);
 
   const handleAddExpense = useCallback((expense: Expense) => {
     // A savings-bucket source lowers a COMPUTED bucket via a paired negative
