@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { FinancialData, IncomeEntry, Expense, Bill, BillPayment, TabType, PayResult } from './types';
-import { addMonths, generateId, getPaycheckTakeHome, isBillPaidOff, withBillExpenses } from './lib/utils';
+import { addMonths, generateId, getActualExpenses, getPaycheckTakeHome, isBillPaidOff, isSyntheticSavingsRow, withBillExpenses } from './lib/utils';
 import { SummaryCards } from './components/SummaryCards';
 import { IncomeForm } from './components/IncomeForm';
 import { IncomeList } from './components/IncomeList';
@@ -46,7 +46,7 @@ import { getProfilePictureUrl } from './lib/profilePicture';
 import { isUserAdmin } from './lib/adminUtils';
 import { usePrivacyNotice } from './hooks/usePrivacyNotice';
 import { useFundingSources } from './lib/useFundingSources';
-import { backfillDebitFromPaychecks } from './lib/walletStore';
+import { backfillDebitFromPaychecks, reconcileDebitForPastExpenses } from './lib/walletStore';
 
 const LOGO_URL = '/logo.png';
 
@@ -242,18 +242,52 @@ const App: React.FC = () => {
       if (result.ok) setData(result.data);
       setIsLoaded(true);
 
-      // One-time reconciliation: paychecks logged before "salary lands on the
-      // Debit Card" never credited Debit, so add their total take-home once.
-      // Guarded server-side (debit_backfilled_at), so this is a no-op every load
-      // after the first — safe to fire on every startup.
+      // One-time reconciliations for the "salary lands on the Debit Card" model.
+      // Both are guarded server-side (own timestamp columns), so this is a no-op
+      // every load after the first — safe to fire on every startup. They run in
+      // order: credit first, then deduct, so the deduction lands on the credited
+      // balance rather than racing it.
+      //   1) Paychecks logged before the change never credited Debit → add their
+      //      total take-home once (debit_backfilled_at).
+      //   2) Expenses logged before the change never debited Debit → subtract
+      //      the total of the REAL, UNTRACKED cash spends once
+      //      (debit_expense_reconciled_at). "Untracked" is the key word: only a
+      //      row with NO funding source ever bypassed a live balance deduction.
+      //      We subtract a row ONLY when ALL hold:
+      //        • e.source == null — anything with a source (debit/wallet/custom/
+      //          savings) was already deducted from THAT pot at add-time (or, for
+      //          a savings source, left its bucket via a negative synthetic
+      //          child), so re-subtracting from Debit would double-deduct;
+      //        • not a savings/investment SET-ASIDE (EF/GS/Savings/MP2) — those
+      //          are money moved INTO a bucket, not spent; getActualExpenses
+      //          drops them. Subtracting them would double-hit net worth (Debit
+      //          down AND savings up), and for EF/GS take-home already excluded
+      //          them from the Debit credit, so Debit never held that cash;
+      //        • not a synthetic savings-withdrawal / transfer leg;
+      //        • a positive amount.
+      //      Bill payments live in billPayments, not data.expenses, and take-home
+      //      already nets them out — so they're correctly untouched here.
       if (result.ok) {
         const takeHomeTotal = result.data.incomeHistory.reduce((s, inc) => s + getPaycheckTakeHome(inc), 0);
-        backfillDebitFromPaychecks(takeHomeTotal).then((res) => {
-          if (!res.ok) {
-            setSaveStatus('error');
-            setSaveError(res.error ?? 'Failed to reconcile past paychecks to the Debit Card.');
-          }
-        });
+        const backfillRes = await backfillDebitFromPaychecks(takeHomeTotal);
+        if (cancelled) return;
+        if (backfillRes.ok === false) {
+          setSaveStatus('error');
+          setSaveError(backfillRes.error ?? 'Failed to reconcile past paychecks to the Debit Card.');
+        }
+
+        const untrackedExpenseTotal = getActualExpenses(result.data.expenses).reduce((s, e) => {
+          const hasFundingSource = e.source != null;
+          const isSynthetic = isSyntheticSavingsRow(e);
+          const isPositiveSpend = e.amount > 0;
+          return hasFundingSource || isSynthetic || !isPositiveSpend ? s : s + e.amount;
+        }, 0);
+        const reconcileRes = await reconcileDebitForPastExpenses(untrackedExpenseTotal);
+        if (cancelled) return;
+        if (reconcileRes.ok === false) {
+          setSaveStatus('error');
+          setSaveError(reconcileRes.error ?? 'Failed to deduct past expenses from the Debit Card.');
+        }
       }
     })();
     return () => { cancelled = true; };

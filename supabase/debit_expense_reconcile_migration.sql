@@ -1,0 +1,31 @@
+-- ============================================================================
+-- One-time guard for deducting PAST expenses from the Debit Card
+-- ============================================================================
+-- The paycheck backfill (see debit_paycheck_backfill_migration.sql) added the
+-- take-home of every past paycheck to the Debit balance. But expenses only
+-- deduct from Debit when tagged source='debit', a default that only applies
+-- going forward — so every expense logged BEFORE the salary-model change never
+-- came out of Debit. Result: Debit was inflated by roughly the user's total
+-- historical (untagged) spending.
+--
+-- The app fixes this with a ONE-TIME reconciliation: it sums every REAL,
+-- UNTRACKED cash spend — a positive expense row with NO funding source (rows
+-- WITH a source already deducted from their own pot live), that is NOT a
+-- savings/investment set-aside (Emergency Fund / General Savings / Savings /
+-- Pag-IBIG MP2 are money moved into a bucket, not spent), and is NOT a synthetic
+-- savings-withdrawal / transfer leg — and subtracts that total from the current
+-- Debit balance, once. Bill payments live in a separate table and take-home
+-- already nets them out, so they're excluded too.
+--
+-- This column is the guard that makes it exactly once (per user, across
+-- devices). The app:
+--   • on load, if debit_expense_reconciled_at IS NULL → subtract Σ untracked
+--     expenses from debit_balance (floored at 0), then stamp the column = now();
+--   • if it's already set → skip (never double-deducts).
+--
+-- Additive + nullable, so existing rows are untouched. Run in Supabase SQL
+-- Editor. Safe to re-run.
+-- ============================================================================
+
+alter table public.wallet_balance
+  add column if not exists debit_expense_reconciled_at timestamptz;

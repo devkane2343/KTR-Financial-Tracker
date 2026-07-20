@@ -107,6 +107,62 @@ export async function backfillDebitFromPaychecks(takeHomeTotal: number): Promise
   return { ok: true, ran: true, debit: next };
 }
 
+/**
+ * One-time "deduct past expenses from Debit" reconciliation. The paycheck
+ * backfill credited Debit with all lifetime take-home, but expenses logged
+ * before the salary-model change never debited it (only source='debit' ones
+ * do). This subtracts `deductTotal` — the sum of those untracked expenses,
+ * computed by the caller — from the Debit balance, exactly once per user
+ * (guarded by debit_expense_reconciled_at, so it's device-independent).
+ *
+ * Floors the result at 0: if the untracked spend exceeds the current balance
+ * (e.g. the paycheck backfill hasn't run, or Debit was manually lowered) we
+ * clamp rather than store a negative balance. Returns the new balance when it
+ * ran, `ran: false` when already done or the guard column isn't migrated yet.
+ *
+ * Same read-then-write caveat as the paycheck backfill: not a DB transaction,
+ * but the flag makes a concurrent double-run benign in practice.
+ */
+export type DebitReconcileResult =
+  | { ok: true; ran: true; debit: number }
+  | { ok: true; ran: false }
+  | { ok: false; error: string };
+
+export async function reconcileDebitForPastExpenses(deductTotal: number): Promise<DebitReconcileResult> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: 'You must be signed in.' };
+
+  const { data, error } = await supabase
+    .from('wallet_balance')
+    .select('debit_balance, debit_expense_reconciled_at')
+    .maybeSingle();
+
+  if (error) {
+    // Guard column / table not migrated yet → skip silently, try again next load.
+    if (/does not exist/i.test(error.message)) return { ok: true, ran: false };
+    return { ok: false, error: error.message };
+  }
+
+  // Already reconciled for this user — never deduct twice.
+  if (data && (data as { debit_expense_reconciled_at?: string | null }).debit_expense_reconciled_at) {
+    return { ok: true, ran: false };
+  }
+
+  const current = data ? Number((data as { debit_balance?: number }).debit_balance ?? 0) : 0;
+  const deduct = Number.isFinite(deductTotal) ? Math.max(0, deductTotal) : 0;
+  const next = Math.max(0, current - deduct);
+
+  const { error: upErr } = await supabase
+    .from('wallet_balance')
+    .upsert(
+      { user_id: user.id, debit_balance: next, debit_expense_reconciled_at: new Date().toISOString() },
+      { onConflict: 'user_id' },
+    );
+
+  if (upErr) return { ok: false, error: upErr.message };
+  return { ok: true, ran: true, debit: next };
+}
+
 /** Set one pot (upsert one row for this user, only touching the target column). */
 export async function saveWalletBalance(field: BalanceField, amount: number): Promise<WalletSaveResult> {
   const { data: { user } } = await supabase.auth.getUser();

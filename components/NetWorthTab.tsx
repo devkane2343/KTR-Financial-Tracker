@@ -18,6 +18,8 @@ import { loadValueHistory, appendValueSnapshot, type ValueSnapshot } from '../li
 import {
   projectMp2,
   summarizeMp2Contributions,
+  deriveMp2Monthly,
+  recurringMp2Months,
   MP2_TERM_YEARS,
   MP2_MIN_CONTRIBUTION,
   MP2_LATEST_RATE_PCT,
@@ -431,23 +433,10 @@ const Mp2ProjectionPanel: React.FC<Mp2ProjectionPanelProps> = ({ openingBalance,
   // netted out). See summarizeMp2Contributions.
   const history = useMemo(() => summarizeMp2Contributions(contributions), [contributions]);
 
-  // A SUGGESTED recurring monthly, excluding the one-time opening lump (largest
-  // month) so a big initial deposit doesn't inflate it. This is only a starting
-  // hint — the monthly field is the user's to set (MP2 remittances are ad-hoc).
-  // Averages the non-lump months; if only the lump exists, the ₱500 minimum.
-  const derivedMonthly = useMemo(() => {
-    if (!history.hasHistory) return MP2_MIN_CONTRIBUTION;
-    const recurring = history.monthlyPayments.filter(p => p.monthKey !== history.largestMonth?.monthKey);
-    if (recurring.length > 0) {
-      return Math.max(Math.round(recurring.reduce((s, p) => s + p.amount, 0) / recurring.length), 0);
-    }
-    return MP2_MIN_CONTRIBUTION;
-  }, [history]);
-  // Distinct calendar months with a non-lump payment — used to word the recurring
-  // hint honestly (one month of ad-hoc top-ups ≠ a proven monthly cadence).
-  const recurringMonthCount = history.hasHistory
-    ? history.monthlyPayments.filter(p => p.monthKey !== history.largestMonth?.monthKey).length
-    : 0;
+  // Suggested recurring monthly derived from real history (opening lump excluded).
+  // Only a starting hint for the field — see deriveMp2Monthly. The full
+  // reconciliation detail now lives on the Actual tab (Mp2ActualPanel).
+  const derivedMonthly = useMemo(() => deriveMp2Monthly(history), [history]);
 
   // Opening balance for the projection = the TRUE current MP2 balance, fee-clean.
   // `openingBalance` is the real card balance (contributions − withdrawals);
@@ -652,110 +641,25 @@ const Mp2ProjectionPanel: React.FC<Mp2ProjectionPanelProps> = ({ openingBalance,
         </label>
       </div>
 
-      {/* From your real MP2 payments — auto-derived. Shows the opening lump vs your
-          recurring cadence (so the monthly isn't inflated by the big deposit), an
-          auto months-paid grid, and a per-month breakdown. Updates automatically
-          whenever you log a new MP2 payment (it's read live from your expenses). */}
+      {/* Reconcile the monthly with real payments — the reconciliation detail
+          (opening lump, months-paid grid, per-month breakdown) lives on the
+          Actual tab now; here we keep only the one input hint that feeds the
+          forecast. It's a soft suggestion (MP2 remittances are ad-hoc), so the
+          monthly stays the user's to set. */}
       {history.hasHistory && (
-        <div className="rounded-xl border border-rule bg-paper-soft/40 p-4 space-y-3">
-          <div className="flex items-center gap-2">
-            <span className="shrink-0 w-7 h-7 rounded-md bg-jade-50 text-jade-600 dark:bg-jade-900/40 dark:text-jade-400 flex items-center justify-center">
-              <History className="w-4 h-4" />
-            </span>
-            <div className="min-w-0">
-              <p className="text-xs font-medium text-ink">From your actual MP2 payments</p>
-              <p className="text-[10px] text-ink-muted">Auto-calculated from what you've logged · service charges netted out.</p>
-            </div>
-          </div>
-
-          {/* Opening lump vs recurring cadence */}
-          <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-lg border border-rule bg-paper px-3 py-2">
-              <p className="text-[10px] uppercase tracking-wider text-ink-muted">Opening lump</p>
-              <p className="num text-sm font-semibold text-ink mt-0.5">
-                {history.largestMonth ? formatCurrency(history.largestMonth.amount) : '—'}
-              </p>
-              <p className="text-[10px] text-ink-muted">
-                {history.largestMonth ? `${MONTH_LABELS[history.largestMonth.month - 1]} ${history.largestMonth.year}` : ''}
-              </p>
-            </div>
-            <div className="rounded-lg border border-rule bg-paper px-3 py-2">
-              <p className="text-[10px] uppercase tracking-wider text-ink-muted">Suggested / mo</p>
-              <p className="num text-sm font-semibold text-ink mt-0.5">{formatCurrency(derivedMonthly)}</p>
-              <p className="text-[10px] text-ink-muted">
-                {recurringMonthCount >= 2
-                  ? 'avg of your non-lump months'
-                  : recurringMonthCount === 1
-                    ? 'from one month of top-ups — set your own'
-                    : 'MP2 minimum (no cadence yet)'}
-              </p>
-            </div>
-          </div>
-
-          {/* Suggest the derived monthly for the field — it's a hint, not a claim
-              of a proven cadence (MP2 remittances are flexible), so the wording
-              stays soft and the monthly stays the user's to set. */}
-          {!monthlyMatchesHistory ? (
-            <button
-              type="button"
-              onClick={useDerivedMonthly}
-              className="text-[11px] font-medium text-jade-700 dark:text-jade-400 hover:underline inline-flex items-center gap-1"
-            >
-              <ArrowDownRight className="w-3 h-3" /> Use {formatCurrency(derivedMonthly)}/mo as a starting point
-            </button>
-          ) : (
-            <p className="text-[11px] text-jade-700 dark:text-jade-400 inline-flex items-center gap-1">
-              <Check className="w-3 h-3" /> Monthly set to your suggested figure.
-            </p>
-          )}
-
-          {/* Auto months-paid grid — every month you actually paid is marked. */}
-          {Object.keys(history.paidMonths).sort().map(yr => {
-            const paid = new Set(history.paidMonths[yr]);
-            return (
-              <div key={yr}>
-                <div className="flex items-center justify-between mb-1">
-                  <p className="text-[10px] uppercase tracking-wider text-ink-muted font-medium">Months paid · {yr}</p>
-                  <p className="text-[10px] text-ink-muted"><span className="font-semibold text-ink">{paid.size}</span>/12</p>
-                </div>
-                <div className="grid grid-cols-6 gap-1">
-                  {MONTH_LABELS.map((label, i) => {
-                    const isPaid = paid.has(i + 1);
-                    return (
-                      <span
-                        key={i}
-                        title={`${label} ${yr}: ${isPaid ? 'paid' : 'not paid'}`}
-                        className={`text-[9px] font-medium text-center py-1 rounded ${
-                          isPaid ? 'bg-jade-500 text-white dark:bg-jade-600' : 'bg-paper text-ink-muted border border-rule'
-                        }`}
-                      >
-                        {label[0]}
-                      </span>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-
-          {/* Per-month payment breakdown. */}
-          <div>
-            <p className="text-[10px] uppercase tracking-wider text-ink-muted font-medium mb-1">Payments</p>
-            <ul className="space-y-0.5">
-              {history.monthlyPayments.map(p => (
-                <li key={p.monthKey} className="flex items-center justify-between text-[11px]">
-                  <span className="text-ink-soft">
-                    {MONTH_LABELS[p.month - 1]} {p.year}
-                    {history.largestMonth?.monthKey === p.monthKey && (
-                      <span className="ml-1.5 text-[9px] px-1.5 py-0.5 rounded-full bg-paper text-ink-soft border border-rule">opening</span>
-                    )}
-                  </span>
-                  <span className="num font-semibold text-ink tabular-nums">{formatCurrency(p.amount)}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
+        !monthlyMatchesHistory ? (
+          <button
+            type="button"
+            onClick={useDerivedMonthly}
+            className="text-[11px] font-medium text-jade-700 dark:text-jade-400 hover:underline inline-flex items-center gap-1"
+          >
+            <ArrowDownRight className="w-3 h-3" /> Use {formatCurrency(derivedMonthly)}/mo from your actual payments
+          </button>
+        ) : (
+          <p className="text-[11px] text-jade-700 dark:text-jade-400 inline-flex items-center gap-1">
+            <Check className="w-3 h-3" /> Monthly set to your suggested figure from actual payments.
+          </p>
+        )
       )}
 
       {/* Payout mode toggle — compounded vs annual dividend payout. */}
@@ -895,6 +799,132 @@ const Mp2ProjectionPanel: React.FC<Mp2ProjectionPanelProps> = ({ openingBalance,
 };
 
 /**
+ * Actual tab for the Pag-IBIG MP2 card. The read-only reconciliation of what the
+ * user has really paid — split out from the Projection tab so the forecast can be
+ * tested independently of live history. Shows the opening lump vs the recurring
+ * cadence (so the monthly isn't inflated by the big deposit), an auto months-paid
+ * grid, and a per-month breakdown. All auto-derived from logged MP2 payments with
+ * service charges netted out; updates whenever a new payment is logged.
+ */
+interface Mp2ActualPanelProps {
+  /** The user's actual dated MP2 contributions (already service-charge-clean upstream). */
+  contributions: Mp2ContributionPoint[];
+}
+
+const Mp2ActualPanel: React.FC<Mp2ActualPanelProps> = ({ contributions }) => {
+  const history = useMemo(() => summarizeMp2Contributions(contributions), [contributions]);
+  const derivedMonthly = useMemo(() => deriveMp2Monthly(history), [history]);
+  // Distinct non-lump months — used to word the recurring hint honestly (one month
+  // of ad-hoc top-ups ≠ a proven monthly cadence).
+  const recurringMonthCount = useMemo(() => recurringMp2Months(history).length, [history]);
+
+  if (!history.hasHistory) {
+    return (
+      <div className="flex flex-col items-center text-center py-16 px-6">
+        <span className="w-11 h-11 rounded-xl bg-paper-soft text-ink-muted flex items-center justify-center mb-3">
+          <History className="w-5 h-5" />
+        </span>
+        <p className="text-sm font-medium text-ink">No MP2 payments logged yet</p>
+        <p className="text-[11px] text-ink-muted mt-1 max-w-[240px] leading-relaxed">
+          Once you log MP2 contributions from your paychecks or expenses, your real payment
+          history and cadence will show up here — and seed the Projection tab.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 sm:p-5 space-y-4">
+      <div className="flex items-center gap-2">
+        <span className="shrink-0 w-7 h-7 rounded-md bg-jade-50 text-jade-600 dark:bg-jade-900/40 dark:text-jade-400 flex items-center justify-center">
+          <History className="w-4 h-4" />
+        </span>
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-ink">From your actual MP2 payments</p>
+          <p className="text-[10px] text-ink-muted">Auto-calculated from what you've logged · service charges netted out.</p>
+        </div>
+      </div>
+
+      {/* Total in vs opening lump vs recurring cadence. */}
+      <div className="grid grid-cols-3 gap-2">
+        <div className="rounded-lg border border-rule bg-paper-soft/40 px-3 py-2">
+          <p className="text-[10px] uppercase tracking-wider text-ink-muted">Total in</p>
+          <p className="num text-sm font-semibold text-ink mt-0.5">{formatCurrency(history.totalIn)}</p>
+          <p className="text-[10px] text-ink-muted">{history.activeMonths} {history.activeMonths === 1 ? 'month' : 'months'} paid</p>
+        </div>
+        <div className="rounded-lg border border-rule bg-paper-soft/40 px-3 py-2">
+          <p className="text-[10px] uppercase tracking-wider text-ink-muted">Opening lump</p>
+          <p className="num text-sm font-semibold text-ink mt-0.5">
+            {history.largestMonth ? formatCurrency(history.largestMonth.amount) : '—'}
+          </p>
+          <p className="text-[10px] text-ink-muted">
+            {history.largestMonth ? `${MONTH_LABELS[history.largestMonth.month - 1]} ${history.largestMonth.year}` : ''}
+          </p>
+        </div>
+        <div className="rounded-lg border border-rule bg-paper-soft/40 px-3 py-2">
+          <p className="text-[10px] uppercase tracking-wider text-ink-muted">Suggested / mo</p>
+          <p className="num text-sm font-semibold text-ink mt-0.5">{formatCurrency(derivedMonthly)}</p>
+          <p className="text-[10px] text-ink-muted">
+            {recurringMonthCount >= 2
+              ? 'avg of your non-lump months'
+              : recurringMonthCount === 1
+                ? 'from one month of top-ups'
+                : 'MP2 minimum (no cadence yet)'}
+          </p>
+        </div>
+      </div>
+
+      {/* Auto months-paid grid — every month you actually paid is marked. */}
+      {Object.keys(history.paidMonths).sort().map(yr => {
+        const paid = new Set(history.paidMonths[yr]);
+        return (
+          <div key={yr}>
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-[10px] uppercase tracking-wider text-ink-muted font-medium">Months paid · {yr}</p>
+              <p className="text-[10px] text-ink-muted"><span className="font-semibold text-ink">{paid.size}</span>/12</p>
+            </div>
+            <div className="grid grid-cols-6 gap-1">
+              {MONTH_LABELS.map((label, i) => {
+                const isPaid = paid.has(i + 1);
+                return (
+                  <span
+                    key={i}
+                    title={`${label} ${yr}: ${isPaid ? 'paid' : 'not paid'}`}
+                    className={`text-[9px] font-medium text-center py-1 rounded ${
+                      isPaid ? 'bg-jade-500 text-white dark:bg-jade-600' : 'bg-paper text-ink-muted border border-rule'
+                    }`}
+                  >
+                    {label[0]}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Per-month payment breakdown. */}
+      <div>
+        <p className="text-[10px] uppercase tracking-wider text-ink-muted font-medium mb-1">Payments</p>
+        <ul className="space-y-0.5">
+          {history.monthlyPayments.map(p => (
+            <li key={p.monthKey} className="flex items-center justify-between text-[11px]">
+              <span className="text-ink-soft">
+                {MONTH_LABELS[p.month - 1]} {p.year}
+                {history.largestMonth?.monthKey === p.monthKey && (
+                  <span className="ml-1.5 text-[9px] px-1.5 py-0.5 rounded-full bg-paper text-ink-soft border border-rule">opening</span>
+                )}
+              </span>
+              <span className="num font-semibold text-ink tabular-nums">{formatCurrency(p.amount)}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+};
+
+/**
  * Detail modal for a savings bucket — lists every contribution (how much + when),
  * newest first, with a running total. Opened by clicking a savings card. For the
  * Pag-IBIG MP2 bucket it also carries a "Projection" tab (see Mp2ProjectionPanel)
@@ -918,10 +948,14 @@ const SavingsDetailModal: React.FC<SavingsDetailModalProps> = ({ bucket, title, 
   );
   const total = contributions.reduce((s, c) => s + c.amount, 0);
 
-  // The Projection tab is available only for MP2 (when a balance is provided).
+  // The Actual + Projection tabs are available only for MP2 (when a balance is
+  // provided). `hasProjection` gates the whole MP2 tab bar.
   const hasProjection = mp2Balance !== undefined;
-  const [tab, setTab] = useState<'contributions' | 'projection'>('contributions');
+  const [tab, setTab] = useState<'contributions' | 'actual' | 'projection'>('contributions');
   const onProjection = hasProjection && tab === 'projection';
+  const onActual = hasProjection && tab === 'actual';
+  // Only the Projection tab needs the wide layout (charts + breakdown table).
+  const wide = onProjection;
 
   const [page, setPage] = useState(0);
   const pageCount = Math.max(1, Math.ceil(contributions.length / PAGE_SIZE));
@@ -944,7 +978,7 @@ const SavingsDetailModal: React.FC<SavingsDetailModalProps> = ({ bucket, title, 
       <div
         ref={panelRef}
         tabIndex={-1}
-        className={`bg-paper w-full sm:rounded-2xl rounded-t-2xl border border-rule shadow-paper-lift max-h-[85vh] flex flex-col animate-fade-up focus:outline-none transition-[max-width] ${onProjection ? 'sm:max-w-2xl' : 'sm:max-w-md'}`}
+        className={`bg-paper w-full sm:rounded-2xl rounded-t-2xl border border-rule shadow-paper-lift max-h-[85vh] flex flex-col animate-fade-up focus:outline-none transition-[max-width] ${wide ? 'sm:max-w-2xl' : 'sm:max-w-md'}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -971,6 +1005,7 @@ const SavingsDetailModal: React.FC<SavingsDetailModalProps> = ({ bucket, title, 
           <div className="flex items-center gap-1 px-3 pt-3 border-b border-rule" role="tablist" aria-label="MP2 views">
             {([
               { key: 'contributions' as const, label: 'Contributions', icon: <Receipt className="w-3.5 h-3.5" /> },
+              { key: 'actual' as const, label: 'Actual', icon: <History className="w-3.5 h-3.5" /> },
               { key: 'projection' as const, label: 'Projection', icon: <TrendingUp className="w-3.5 h-3.5" /> },
             ]).map(t => (
               <button
@@ -995,6 +1030,13 @@ const SavingsDetailModal: React.FC<SavingsDetailModalProps> = ({ bucket, title, 
           <div className="overflow-y-auto flex-1" role="tabpanel">
             <Mp2ProjectionPanel
               openingBalance={mp2Balance!}
+              contributions={contributions.map(c => ({ date: c.date, amount: c.amount }))}
+            />
+          </div>
+        ) : onActual ? (
+          /* Actual tab (MP2 only) — read-only reconciliation of real payments. */
+          <div className="overflow-y-auto flex-1" role="tabpanel">
+            <Mp2ActualPanel
               contributions={contributions.map(c => ({ date: c.date, amount: c.amount }))}
             />
           </div>

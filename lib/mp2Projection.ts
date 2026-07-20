@@ -311,3 +311,26 @@ export function summarizeMp2Contributions(points: Mp2ContributionPoint[]): Mp2Co
 
   return { suggestedMonthly, activeMonths, totalIn, serviceChargeStripped, hasHistory: activeMonths > 0, paidMonths, monthlyPayments, largestMonth };
 }
+
+/** The non-lump months (every month except the biggest, which is treated as the
+ *  one-time opening deposit). Shared by the Actual and Projection views. */
+export function recurringMp2Months(summary: Mp2ContributionSummary): Mp2MonthlyPayment[] {
+  if (!summary.hasHistory) return [];
+  return summary.monthlyPayments.filter(p => p.monthKey !== summary.largestMonth?.monthKey);
+}
+
+/**
+ * A SUGGESTED recurring monthly contribution derived from real history, excluding
+ * the one-time opening lump (largest month) so a big initial deposit doesn't
+ * inflate it. Only a starting hint — MP2 remittances are ad-hoc, so the monthly
+ * stays the user's to set. Averages the non-lump months; if only the lump exists,
+ * falls back to the ₱500 minimum.
+ */
+export function deriveMp2Monthly(summary: Mp2ContributionSummary): number {
+  if (!summary.hasHistory) return MP2_MIN_CONTRIBUTION;
+  const recurring = recurringMp2Months(summary);
+  if (recurring.length > 0) {
+    return Math.max(Math.round(recurring.reduce((s, p) => s + p.amount, 0) / recurring.length), 0);
+  }
+  return MP2_MIN_CONTRIBUTION;
+}
